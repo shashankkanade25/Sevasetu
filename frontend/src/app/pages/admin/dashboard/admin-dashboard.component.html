@@ -1,0 +1,177 @@
+<div class="dashboard-container">
+  
+  <!-- ROW 1 -->
+  
+  <!-- Priority Needs Container -->
+  <div class="dashboard-panel priority-panel">
+    <div class="panel-header">
+      <h2>Priority Needs</h2>
+    </div>
+    
+    <div class="priority-grid">
+      @for (need of priorityNeeds; track need.title; let i = $index) {
+        <mat-card class="priority-card" [ngClass]="{'full-width': i === 0}">
+          <mat-card-content>
+            <div class="card-top">
+              <div class="icon-title-group">
+                <div class="icon-container" [ngClass]="'theme-' + need.theme">
+                  <mat-icon>{{ need.icon }}</mat-icon>
+                </div>
+                <div class="title-loc">
+                  <h3>{{ need.title }}</h3>
+                  <span>{{ need.location }}</span>
+                </div>
+              </div>
+              <div class="score-badge" [ngClass]="'theme-' + need.theme">
+                {{ need.score }}
+              </div>
+            </div>
+            
+            <div class="card-bottom">
+              <p class="description">{{ need.description }}</p>
+              <div class="urgency-label" [ngClass]="'label-' + need.theme">
+                {{ need.urgency }}
+              </div>
+            </div>
+          </mat-card-content>
+        </mat-card>
+      }
+    </div>
+  </div>
+
+  <!-- Needs Heatmap -->
+  <div class="dashboard-panel heatmap-panel">
+    <div class="panel-header heatmap-header">
+      <h2>Needs Heatmap</h2>
+      <div class="header-actions">
+        <span class="status-green">Green</span>
+        <mat-icon class="more-icon">more_horiz</mat-icon>
+      </div>
+    </div>
+    <div class="map-container">
+      <img src="assets/heatmap_placeholder.png" alt="Map Heatmap" class="map-image" />
+      <div class="legend-overlay">
+        <ul>
+          <li><span class="dot red"></span> Urgent</li>
+          <li><span class="dot yellow"></span> High</li>
+          <li><span class="dot green"></span> Medium</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ROW 2 -->
+  
+  <!-- Category Breakdown -->
+  <div class="dashboard-panel category-panel">
+    <div class="panel-header">
+      <h2>Category Breakdown</h2>
+    </div>
+    <div class="chart-content pie-layout">
+      <div class="pie-chart-placeholder"></div>
+      <div class="pie-legend">
+        <ul>
+          <li><span class="dot red"></span> Health</li>
+          <li><span class="dot yellow"></span> Food</li>
+          <li><span class="dot green"></span> Education</li>
+          <li><span class="dot blue"></span> Nutrition</li>
+        </ul>
+      </div>
+    </div>
+    <div class="chart-footer-legend">
+      <span class="pill red-pill"><span class="dot"></span> Medical</span>
+      <span class="pill blue-pill"><span class="dot"></span> Water</span>
+      <span class="pill green-pill"><span class="dot"></span> Education</span>
+    </div>
+  </div>
+
+  <!-- Trends Section -->
+  <div class="dashboard-panel trends-panel">
+    <div class="panel-header trends-header">
+      <h2>Trends Section</h2>
+      <span class="trend-stat"><mat-icon>arrow_upward</mat-icon> 30% this week</span>
+    </div>
+    <div class="chart-content line-chart-area">
+      <!-- Simulated Line Chart -->
+      <svg viewBox="0 0 400 150" class="line-chart-svg" preserveAspectRatio="none">
+        <!-- Grid lines -->
+        <g class="grid-lines">
+          <line x1="0" y1="20" x2="400" y2="20" />
+          <line x1="0" y1="60" x2="400" y2="60" />
+          <line x1="0" y1="100" x2="400" y2="100" />
+          <line x1="0" y1="140" x2="400" y2="140" />
+          <text x="0" y="25" class="axis-label">50</text>
+          <text x="0" y="65" class="axis-label">20</text>
+          <text x="0" y="105" class="axis-label">10</text>
+        </g>
+        <!-- Lines -->
+        <polyline points="30,120 100,110 170,110 240,95 310,125 380,120" stroke="#E2E8F0" stroke-width="2" fill="none" stroke-dasharray="4" />
+        <polyline points="30,80 100,75 170,80 240,65 310,85 380,75" stroke="#3B82F6" stroke-width="2" fill="none" />
+        <polyline points="30,40 100,30 170,10 240,25 310,15 380,20" stroke="#EF4444" stroke-width="2" fill="none" />
+        <!-- Data Points (Red line) -->
+        <circle cx="30" cy="40" r="3" fill="#EF4444"/>
+        <circle cx="100" cy="30" r="3" fill="#EF4444"/>
+        <circle cx="170" cy="10" r="3" fill="#EF4444"/>
+        <circle cx="240" cy="25" r="3" fill="#EF4444"/>
+        <circle cx="310" cy="15" r="3" fill="#EF4444"/>
+        <circle cx="380" cy="20" r="3" fill="#EF4444"/>
+      </svg>
+      <div class="x-axis-labels">
+        <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
+      </div>
+    </div>
+    
+    <div class="trends-footer">
+      <div class="trend-legend">
+        <span><span class="dot red"></span> Medical</span>
+        <span><span class="dot yellow"></span> Water</span>
+        <span><span class="dot blue"></span> Education</span>
+      </div>
+      <div class="trend-stats-row">
+        <span><mat-icon class="sm-icon blue">arrow_drop_down</mat-icon> Medical</span>
+        <span>Water</span>
+        <span>Education</span>
+        <span class="stat-bold">15%</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recommended Actions & Volunteers -->
+  <div class="dashboard-panel actions-panel">
+    <div class="panel-header">
+      <h2>Recommended Actions</h2>
+    </div>
+    
+    <div class="actions-list">
+      @for (action of recommendedActions; track action.text) {
+        <div class="action-item">
+          <mat-icon [ngClass]="'text-' + action.theme">{{ action.icon }}</mat-icon>
+          <span class="action-text">{{ action.text }}</span>
+          <div class="score-badge sm-badge" [ngClass]="'theme-' + action.theme">{{ action.score }}</div>
+        </div>
+      }
+    </div>
+
+    <mat-divider class="actions-divider"></mat-divider>
+
+    <div class="volunteers-list">
+      @for (vol of volunteers; track vol.name) {
+        <div class="volunteer-card">
+          <div class="vol-top">
+            <div class="vol-avatar" [ngClass]="'bg-' + vol.theme">{{ vol.avatarChar }}</div>
+            <div class="vol-info">
+              <h4>{{ vol.name }}</h4>
+              <span class="role">{{ vol.role }}</span>
+            </div>
+            <div class="score-badge sm-badge inline-badge" [ngClass]="'theme-' + vol.theme">{{ vol.score }}</div>
+          </div>
+          <div class="vol-bottom">
+            <mat-icon class="availability-icon" [ngClass]="'text-' + vol.theme">radio_button_checked</mat-icon>
+            <span class="availability">{{ vol.availability }}</span>
+          </div>
+        </div>
+      }
+    </div>
+  </div>
+
+</div>

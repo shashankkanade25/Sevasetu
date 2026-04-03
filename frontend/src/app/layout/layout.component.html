@@ -1,0 +1,20 @@
+<mat-sidenav-container class="layout-container" id="app-layout">
+  <!-- Sidebar -->
+  <mat-sidenav
+    mode="side"
+    opened
+    disableClose
+    class="layout-sidenav"
+    id="app-sidenav"
+  >
+    <app-sidebar></app-sidebar>
+  </mat-sidenav>
+
+  <!-- Main Content Area -->
+  <mat-sidenav-content class="layout-content">
+    <app-navbar></app-navbar>
+    <main class="page-content" id="page-content">
+      <router-outlet></router-outlet>
+    </main>
+  </mat-sidenav-content>
+</mat-sidenav-container>
