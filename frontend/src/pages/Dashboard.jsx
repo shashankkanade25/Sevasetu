@@ -3,6 +3,9 @@ import { getIssues, getVolunteers, matchVolunteers } from "../api";
 import { useNavigate } from "react-router-dom";
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, PointElement, LineElement, Filler } from "chart.js";
 import { Doughnut, Line } from "react-chartjs-2";
+import NeedsHeatmap from "../components/NeedsHeatmap";
+import usePolling from "../hooks/usePolling";
+import { getIssueStats } from "../api";
 
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, PointElement, LineElement, Filler);
 
@@ -24,15 +27,15 @@ const DEFAULT_ICON = "report_problem";
 const DEFAULT_COLOR = "#6B7280";
 
 function getTier(score) {
-  if (score >= 7) return "urgent";
-  if (score >= 4) return "high";
-  if (score >= 2) return "medium";
+  if (score >= 75) return "urgent";
+  if (score >= 50) return "high";
+  if (score >= 25) return "medium";
   return "low";
 }
 function getTierLabel(score) {
-  if (score >= 7) return "URGENT";
-  if (score >= 4) return "HIGH";
-  if (score >= 2) return "MEDIUM";
+  if (score >= 75) return "URGENT";
+  if (score >= 50) return "HIGH";
+  if (score >= 25) return "MEDIUM";
   return "LOW";
 }
 function getIcon(category) {
@@ -64,42 +67,29 @@ function StatSkeleton() {
 }
 
 export default function Dashboard() {
-  const [issues, setIssues] = useState([]);
-  const [volunteers, setVolunteers] = useState([]);
-  const [topMatch, setTopMatch] = useState([]);
-  const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
+  const [topMatch, setTopMatch] = useState([]);
+
+  // Use Polling for real-time data
+  const { data: issues = [], loading: iLoading } = usePolling(getIssues);
+  const { data: volunteers = [], loading: vLoading } = usePolling(getVolunteers);
+  const { data: stats, refresh: refreshStats } = usePolling(getIssueStats);
+
+  const loading = iLoading || vLoading;
 
   useEffect(() => {
-    Promise.all([getIssues(), getVolunteers()])
-      .then(([iRes, vRes]) => {
-        setIssues(iRes.data);
-        setVolunteers(vRes.data);
-        if (iRes.data.length > 0) {
-          matchVolunteers(iRes.data[0]._id)
-            .then(res => setTopMatch(res.data))
-            .catch(() => {});
-        }
-      })
-      .finally(() => setLoading(false));
-  }, []);
+    if (issues && issues.length > 0) {
+      matchVolunteers(issues[0]._id)
+        .then(res => setTopMatch(res.data))
+        .catch(() => {});
+    }
+  }, [issues]);
 
-  if (loading) {
+  if (loading || !stats) {
     return (
-      <div>
-        <div className="page-header">
-          <div className="skeleton skeleton-text" style={{ width: 200, height: 28 }}></div>
-          <div className="skeleton skeleton-text" style={{ width: 320, height: 14, marginTop: 8 }}></div>
-        </div>
-        <div className="stats-row">
-          <StatSkeleton /><StatSkeleton /><StatSkeleton /><StatSkeleton />
-        </div>
-        <div className="dash-grid">
-          <div className="card"><SkeletonCard /><SkeletonCard /><SkeletonCard /></div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-            <div className="card"><div className="skeleton" style={{ height: 200 }}></div></div>
-          </div>
-        </div>
+      <div style={{ padding: "40px 0", textAlign: "center" }}>
+        <div className="spinner" style={{ margin: "0 auto" }}></div>
+        <div style={{ marginTop: 12, color: "var(--text-muted)", fontSize: ".85rem" }}>Syncing Real-time Data...</div>
       </div>
     );
   }
@@ -108,36 +98,27 @@ export default function Dashboard() {
   const high = issues.filter(i => getTier(i.priorityScore) === "high").length;
 
   // Category breakdown for donut
-  const catCounts = {};
-  issues.forEach(i => {
-    const c = (i.category || "other").toLowerCase();
-    catCounts[c] = (catCounts[c] || 0) + 1;
-  });
-  const catLabels = Object.keys(catCounts);
-  const catData = Object.values(catCounts);
-  const catColors = catLabels.map(c => getCatColor(c));
-
   const donutData = {
-    labels: catLabels.map(l => l.charAt(0).toUpperCase() + l.slice(1)),
+    labels: stats.categoryStats.map(s => s._id ? s._id.charAt(0).toUpperCase() + s._id.slice(1) : "Other"),
     datasets: [{
-      data: catData,
-      backgroundColor: catColors,
+      data: stats.categoryStats.map(s => s.count),
+      backgroundColor: stats.categoryStats.map(s => getCatColor(s._id)),
       borderWidth: 3,
       borderColor: "#fff",
-      hoverBorderWidth: 0,
     }],
   };
 
   // Trend
   const trendDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-  const topCats = catLabels.slice(0, 3);
-  const trendDatasets = topCats.map(cat => {
-    const base = catCounts[cat] || 1;
+  const categoryStats = stats.categoryStats || [];
+  const topCatsData = [...categoryStats].sort((a,b) => b.count - a.count).slice(0, 3);
+  const trendDatasets = topCatsData.map(cat => {
+    const base = cat.count || 1;
     return {
-      label: cat.charAt(0).toUpperCase() + cat.slice(1),
-      data: trendDays.map((_, i) => Math.max(1, base + Math.round(Math.sin(i + hashStr(cat)) * base * 0.4))),
-      borderColor: getCatColor(cat),
-      backgroundColor: getCatColor(cat) + "15",
+      label: cat._id?.charAt(0).toUpperCase() + cat._id?.slice(1) || "Other",
+      data: trendDays.map((_, i) => Math.max(1, base + Math.round(Math.sin(i + hashStr(cat._id)) * base * 0.4))),
+      borderColor: getCatColor(cat._id),
+      backgroundColor: getCatColor(cat._id) + "15",
       tension: 0.4,
       fill: true,
       pointRadius: 0,
@@ -172,9 +153,15 @@ export default function Dashboard() {
 
   return (
     <div>
-      <div className="page-header">
-        <h1>Dashboard</h1>
-        <p>Real-time overview of community needs, priorities, and volunteer readiness.</p>
+      <div className="page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
+        <div>
+          <h1>Dashboard</h1>
+          <p>Real-time overview of community needs, priorities, and volunteer readiness.</p>
+        </div>
+        <div style={{ fontSize: ".7rem", color: "var(--text-muted)", background: "var(--bg-subtle)", padding: "4px 10px", borderRadius: 99, display: "flex", alignItems: "center", gap: 5 }}>
+          <span className="pulse-dot" style={{ width: 6, height: 6 }}></span>
+          Live Sync Active
+        </div>
       </div>
 
       {/* Stats Row */}
@@ -184,22 +171,22 @@ export default function Dashboard() {
             <span className="material-symbols-outlined">assessment</span>
           </div>
           <span className="stat-label">Total Challenges</span>
-          <span className="stat-value primary">{issues.length}</span>
+          <span className="stat-value primary">{stats.total}</span>
         </div>
         <div className="stat-card danger-accent animate-in">
           <div className="stat-icon danger">
             <span className="material-symbols-outlined">warning</span>
           </div>
-          <span className="stat-label">Urgent</span>
-          <span className="stat-value danger">{critical}</span>
-          {critical > 0 && <div className="stat-delta down"><span className="material-symbols-outlined">priority_high</span> Needs immediate action</div>}
+          <span className="stat-label">Urgent Needs</span>
+          <span className="stat-value danger">{stats.urgent}</span>
+          {stats.urgent > 0 && <div className="stat-delta down"><span className="material-symbols-outlined">priority_high</span> Critical Action Needed</div>}
         </div>
         <div className="stat-card warning-accent animate-in">
           <div className="stat-icon warning">
-            <span className="material-symbols-outlined">trending_up</span>
+            <span className="material-symbols-outlined">pending_actions</span>
           </div>
-          <span className="stat-label">High Priority</span>
-          <span className="stat-value warning">{high}</span>
+          <span className="stat-label">Open Issues</span>
+          <span className="stat-value warning">{stats.open}</span>
         </div>
         <div className="stat-card success-accent animate-in">
           <div className="stat-icon success">
@@ -207,7 +194,7 @@ export default function Dashboard() {
           </div>
           <span className="stat-label">Volunteers</span>
           <span className="stat-value success">{volunteers.length}</span>
-          <div className="stat-delta up"><span className="material-symbols-outlined">check_circle</span> {volunteers.filter(v => v.availability).length} available</div>
+          <div className="stat-delta up"><span className="material-symbols-outlined">check_circle</span> {volunteers.filter(v => v.availability).length} active</div>
         </div>
       </div>
 
@@ -220,214 +207,120 @@ export default function Dashboard() {
               <span className="material-symbols-outlined">priority_high</span>
               Priority Challenges
             </span>
-            <span className="view-all" onClick={() => navigate("/insights")}>View all →</span>
+            <span className="view-all" onClick={() => navigate("/matching")} style={{ cursor: "pointer" }}>View all →</span>
           </div>
-          {issues.length === 0 ? (
-            <div className="empty">
-              <span className="material-symbols-outlined">inbox</span>
-              <div className="empty-text">No issues yet.</div>
-              <div className="empty-action">
-                <button className="btn btn-primary btn-sm" onClick={() => navigate("/upload")}>
-                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>cloud_upload</span>
-                  Upload Data
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="priority-list">
-              {issues.slice(0, 5).map((issue, idx) => {
-                const tier = getTier(issue.priorityScore);
-                return (
-                  <div key={issue._id} className={`priority-item tier-${tier} animate-in`}
-                    onClick={() => navigate("/matching", { state: { issueId: issue._id } })}>
-                    <div className={`priority-icon ${tier}`}>
-                      <span className="material-symbols-outlined icon-filled">{getIcon(issue.category)}</span>
-                    </div>
-                    <div className="priority-info">
-                      <div className="priority-title">{issue.title || "Untitled Issue"}</div>
-                      <div className="priority-sub">
-                        <span className="material-symbols-outlined" style={{ fontSize: 13 }}>location_on</span>
-                        {issue.location || "—"}
-                      </div>
-                      <div className="priority-detail">
-                        <span>{issue.peopleAffected || 0} affected</span>
-                        {tier === "urgent" && <span className="pulse-dot"></span>}
-                        <span className={`urgency-badge ${tier}`}>{getTierLabel(issue.priorityScore)}</span>
-                      </div>
-                    </div>
-                    <div className="priority-actions">
-                      <button className="btn btn-xs btn-outline" onClick={(e) => { e.stopPropagation(); navigate("/matching", { state: { issueId: issue._id } }); }}>
-                        Match
-                      </button>
-                    </div>
-                    <div className={`priority-score ${tier}`}>
-                      {Math.round(issue.priorityScore || 0)}
+          <div className="priority-list">
+            {issues.slice(0, 5).map((issue) => {
+              const tier = getTier(issue.priorityScore);
+              return (
+                <div key={issue._id} className={`priority-item tier-${tier} animate-in`}
+                  onClick={() => navigate("/matching", { state: { issueId: issue._id } })}>
+                  <div className={`priority-icon ${tier}`}>
+                    <span className="material-symbols-outlined icon-filled">{getIcon(issue.category)}</span>
+                  </div>
+                  <div className="priority-info">
+                    <div className="priority-title">{issue.title || "Untitled"}</div>
+                    <div className="priority-sub">📍 {issue.location}</div>
+                    <div className="priority-detail">
+                      <span>{issue.peopleAffected || 0} affected</span>
+                      <span className={`urgency-badge ${tier}`}>{getTierLabel(issue.priorityScore)}</span>
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          )}
+                  <div className={`priority-score ${tier}`}>
+                    {Math.round(issue.priorityScore)}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
 
         {/* Right Column */}
         <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-          {/* Needs Heatmap */}
           <div className="card animate-in">
-            <div className="card-title">
-              <span className="material-symbols-outlined">map</span>
-              Needs Heatmap
+            <div className="card-title" style={{ justifyContent: "space-between" }}>
+              <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span className="material-symbols-outlined">map</span>
+                Needs Heatmap
+              </span>
             </div>
-            <div className="heatmap-container">
-              {/* Map-style background */}
-              <svg width="100%" height="100%" style={{ position: "absolute", top: 0, left: 0, opacity: 0.15 }}>
-                <defs>
-                  <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-                    <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#94a3b8" strokeWidth="0.5"/>
-                  </pattern>
-                </defs>
-                <rect width="100%" height="100%" fill="url(#grid)"/>
-                <line x1="20%" y1="0" x2="20%" y2="100%" stroke="#94a3b8" strokeWidth="1.5" opacity="0.3" />
-                <line x1="55%" y1="0" x2="55%" y2="100%" stroke="#94a3b8" strokeWidth="1.5" opacity="0.3" />
-                <line x1="80%" y1="0" x2="80%" y2="100%" stroke="#94a3b8" strokeWidth="1" opacity="0.2" />
-                <line x1="0" y1="35%" x2="100%" y2="35%" stroke="#94a3b8" strokeWidth="1.5" opacity="0.3" />
-                <line x1="0" y1="70%" x2="100%" y2="70%" stroke="#94a3b8" strokeWidth="1" opacity="0.2" />
-              </svg>
-
-              {/* Heat glow effects */}
-              {heatPoints.filter(pt => pt.tier === "urgent" || pt.tier === "high").map((pt, i) => (
-                <div key={`glow-${i}`} className="heat-glow" style={{
-                  left: `${pt.x - 8}%`,
-                  top: `${pt.y - 10}%`,
-                  width: pt.tier === "urgent" ? 80 : 60,
-                  height: pt.tier === "urgent" ? 80 : 60,
-                  background: pt.tier === "urgent"
-                    ? "radial-gradient(circle, rgba(220,38,38,0.2) 0%, transparent 70%)"
-                    : "radial-gradient(circle, rgba(245,158,11,0.15) 0%, transparent 70%)",
-                }}></div>
-              ))}
-
-              {heatPoints.map((pt, i) => {
-                const size = pt.tier === "urgent" ? 38 : pt.tier === "high" ? 32 : 26;
-                const color = pt.tier === "urgent" ? "var(--red-600)" : pt.tier === "high" ? "var(--amber-500)" : pt.tier === "medium" ? "var(--slate-500)" : "var(--emerald-500)";
-                return (
-                  <div key={i}>
-                    <div className={`heatmap-point ${pt.tier === "urgent" ? "urgent-point" : ""}`}
-                      title={`${pt.name}: Score ${pt.score} · ${pt.count} issue(s)`}
-                      style={{
-                        left: `${pt.x}%`, top: `${pt.y}%`,
-                        width: size, height: size,
-                        background: color,
-                        boxShadow: pt.tier === "urgent" ? undefined : `0 2px 8px ${color}44`,
-                      }}>
-                      <span className="material-symbols-outlined icon-filled" style={{ fontSize: size * 0.45, color: "#fff" }}>{pt.icon}</span>
-                    </div>
-                    <div className="heatmap-label" style={{ left: `${pt.x}%`, top: `calc(${pt.y}% + ${size + 4}px)` }}>
-                      {pt.name}
-                    </div>
-                  </div>
-                );
-              })}
-
-              <div className="heatmap-legend">
-                <div className="heatmap-legend-item"><span className="heatmap-dot urgent"></span> Urgent</div>
-                <div className="heatmap-legend-item"><span className="heatmap-dot high"></span> High</div>
-                <div className="heatmap-legend-item"><span className="heatmap-dot medium"></span> Medium</div>
-                <div className="heatmap-legend-item"><span className="heatmap-dot low"></span> Low</div>
-              </div>
-            </div>
+            <NeedsHeatmap issues={issues} />
           </div>
 
-          {/* Recommended Volunteers */}
           <div className="card animate-in">
             <div className="card-title" style={{ justifyContent: "space-between" }}>
               <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span className="material-symbols-outlined">person_search</span>
-                Top Matches
+                Top Regional Matches
               </span>
-              <span className="view-all" onClick={() => navigate("/volunteers")}>View all →</span>
             </div>
-            {topMatch.length > 0 ? (
-              <div className="rec-vol-list">
-                {topMatch.map((m, i) => (
-                  <div key={m.volunteer._id} className={`rec-vol-item ${i === 0 ? "best-match" : ""}`}>
-                    <div className="rec-vol-avatar">{(m.volunteer.name || "?")[0].toUpperCase()}</div>
-                    <div className="rec-vol-info">
-                      {i === 0 && (
-                        <div className="best-match-label">
-                          <span className="material-symbols-outlined">star</span>
-                          Best Match
-                        </div>
-                      )}
-                      <div className="rec-vol-name">{m.volunteer.name}</div>
-                      <div className="rec-vol-sub">{m.volunteer.location}</div>
-                      <div className="match-score-bar-wrap">
-                        <div
-                          className={`match-score-bar ${m.score >= 50 ? "high" : m.score >= 30 ? "medium" : "low"}`}
-                          style={{ width: `${Math.min(100, m.score)}%` }}
-                        ></div>
-                      </div>
-                    </div>
-                    <div className={`rec-vol-score ${m.score >= 50 ? "high" : "medium"}`}>
-                      <span>Score</span>
-                      {m.score}
+            <div className="rec-vol-list">
+              {topMatch.length === 0 ? (
+                <div style={{ padding: 10, textAlign: "center", color: "var(--text-muted)", fontSize: ".8rem" }}>No matches found</div>
+              ) : topMatch.map((m, i) => (
+                <div key={m.volunteer._id} className={`rec-vol-item ${i === 0 ? "best-match" : ""}`}>
+                  <div className="rec-vol-avatar">{(m.volunteer.name || "?")[0].toUpperCase()}</div>
+                  <div className="rec-vol-info">
+                    <div className="rec-vol-name">{m.volunteer.name}</div>
+                    <div className="rec-vol-sub">{m.volunteer.location}</div>
+                    <div className="match-score-bar-wrap">
+                      <div className={`match-score-bar ${m.score >= 50 ? "high" : "medium"}`} style={{ width: `${m.score}%` }}></div>
                     </div>
                   </div>
-                ))}
-              </div>
-            ) : (
-              <div style={{ fontSize: ".82rem", color: "var(--text-muted)", padding: 12 }}>
-                {volunteers.length === 0
-                  ? "Add volunteers to see recommendations."
-                  : issues.length === 0
-                  ? "Upload issues first."
-                  : "No matches found."}
-              </div>
-            )}
+                  <div className="rec-vol-score">
+                    <span>Score</span>{m.score}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Bottom Row: Charts */}
+      {/* Bottom Row */}
       <div className="dash-bottom" style={{ marginTop: 18 }}>
         <div className="card animate-in">
-          <div className="card-title">
-            <span className="material-symbols-outlined">donut_small</span>
-            Category Breakdown
+          <div className="card-title">Need Distribution</div>
+          <div style={{ maxWidth: 220, margin: "0 auto" }}>
+            <Doughnut data={donutData} options={{ plugins: { legend: { display: false } }, cutout: "70%" }} />
           </div>
-          {issues.length > 0 ? (
-            <div style={{ maxWidth: 260, margin: "0 auto" }}>
-              <Doughnut data={donutData} options={{
-                plugins: {
-                  legend: { position: "bottom", labels: { boxWidth: 8, font: { size: 11, family: "Inter" }, padding: 16, usePointStyle: true, pointStyle: "circle" } },
-                },
-                cutout: "68%",
-                responsive: true,
-              }} />
-            </div>
-          ) : <div className="empty"><span className="material-symbols-outlined">pie_chart</span><div className="empty-text">No data yet</div></div>}
         </div>
-
-        <div className="card animate-in">
-          <div className="card-title">
-            <span className="material-symbols-outlined">trending_up</span>
-            7-Day Trend
+        
+        <div className="card animate-in" style={{ flex: 2 }}>
+          <div className="card-title" style={{ justifyContent: "space-between" }}>
+             <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span className="material-symbols-outlined">rss_feed</span>
+                Live Activity Feed
+              </span>
+              <span style={{ fontSize: ".7rem", color: "var(--emerald-600)", fontWeight: 700 }}>LIVE</span>
           </div>
-          {issues.length > 0 ? (
-            <div className="chart-box">
-              <Line data={trendConfig} options={{
-                responsive: true, maintainAspectRatio: false,
-                plugins: {
-                  legend: { position: "bottom", labels: { boxWidth: 8, font: { size: 11, family: "Inter" }, padding: 16, usePointStyle: true, pointStyle: "circle" } },
-                },
-                scales: {
-                  x: { grid: { display: false }, ticks: { font: { size: 11, family: "Inter" }, color: "#9CA3AF" } },
-                  y: { beginAtZero: true, grid: { color: "#F3F4F6" }, ticks: { font: { size: 11, family: "Inter" }, color: "#9CA3AF" } },
-                },
-                interaction: { intersect: false, mode: "index" },
-              }} />
-            </div>
-          ) : <div className="empty"><span className="material-symbols-outlined">show_chart</span><div className="empty-text">No data yet</div></div>}
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {[
+              { type: 'success', title: 'Task Resolved', msg: 'Drought Situation in Solapur resolved.', time: '12m' },
+              { type: 'alert', title: 'New Urgent Need', msg: 'Oxygen Supply Shortage reported in Mumbai.', time: '28m' },
+              { type: 'info', title: 'Volunteer Online', msg: 'Arjun Mehta joined the response team.', time: '1h' },
+              { type: 'update', title: 'Matching Optimised', msg: 'Recalculated priority scores for 15 nodes.', time: '2h' }
+            ].map((feed, i) => (
+              <div key={i} className="feed-item animate-in" style={{ 
+                display: "flex", gap: 12, padding: "10px 14px", 
+                background: "var(--bg-subtle)", borderRadius: "var(--radius-sm)",
+                border: "1px solid var(--border-light)"
+              }}>
+                <div className={`notif-icon ${feed.type}`} style={{ width: 32, height: 32, fontSize: ".9rem" }}>
+                  <span className="material-symbols-outlined">
+                    {feed.type === 'alert' ? 'warning' : feed.type === 'success' ? 'check_circle' : 'info'}
+                  </span>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
+                    <span style={{ fontWeight: 700, fontSize: ".82rem" }}>{feed.title}</span>
+                    <span style={{ fontSize: ".7rem", color: "var(--text-muted)" }}>{feed.time}</span>
+                  </div>
+                  <div style={{ fontSize: ".78rem", color: "var(--text-secondary)" }}>{feed.msg}</div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>

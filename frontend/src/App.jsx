@@ -9,6 +9,9 @@ import Assignments from "./pages/Assignments";
 import Upload from "./pages/Upload";
 import Insights from "./pages/Insights";
 import Login from "./pages/Login";
+import VolunteerAuth from "./pages/VolunteerAuth";
+import VolunteerDashboard from "./pages/VolunteerDashboard";
+import { getNotifications, markNotifRead } from "./api";
 import "./App.css";
 
 function Icon({ name }) {
@@ -32,7 +35,6 @@ const PAGE_TITLES = {
   "/volunteers": "Volunteers",
   "/assignments": "Assignments",
 };
-
 function AppShell({ user }) {
   const location = useLocation();
   const currentPage = PAGE_TITLES[location.pathname] || "Dashboard";
@@ -49,24 +51,43 @@ function AppShell({ user }) {
     }
   };
 
+  const [showNotifs, setShowNotifs] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    const fetchNotifs = async () => {
+      try {
+        const res = await getNotifications("admin");
+        setNotifications(res.data);
+        setUnreadCount(res.data.filter(n => !n.read).length);
+      } catch (err) { console.error(err); }
+    };
+    fetchNotifs();
+    const interval = setInterval(fetchNotifs, 15000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleMarkRead = async (id) => {
+    try {
+      await markNotifRead(id);
+      setNotifications(prev => prev.map(n => n._id === id ? { ...n, read: true } : n));
+      setUnreadCount(c => Math.max(0, c - 1));
+    } catch (err) { console.error(err); }
+  };
+
   return (
-    <div className="app-shell">
+    <div className="app-shell" onClick={() => setShowNotifs(false)}>
       <aside className="sidebar">
+        {/* ... existing sidebar ... */}
         <div className="sidebar-brand">
-          <img src="/Sevasetu-logo.png" alt="SevaSetu Logo" style={{
-            width: 40, height: 40, objectFit: "contain",
-          }} />
+          <img src="/Sevasetu-logo.png" alt="SevaSetu Logo" style={{ width: 40, height: 40, objectFit: "contain" }} />
           <span className="brand-name">Seva<span>Setu</span></span>
         </div>
 
         <nav className="sidebar-nav">
           {NAV_ITEMS.map(item => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}
-            >
+            <NavLink key={item.to} to={item.to} end={item.end} className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}>
               <Icon name={item.icon} />
               <span>{item.label}</span>
             </NavLink>
@@ -74,31 +95,64 @@ function AppShell({ user }) {
         </nav>
 
         <div className="sidebar-footer">
-          <span className="status-dot"></span>
-          System Online
+          <span className="status-dot"></span> System Online
         </div>
       </aside>
 
       <main className="main-content">
         <div className="top-bar">
           <div className="top-bar-left">
-            <Icon name="home" />
-            <span>/</span>
-            <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{currentPage}</span>
+            <Icon name="home" /> <span>/</span> <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{currentPage}</span>
           </div>
           <div className="top-bar-right">
             <button className="top-bar-btn" title="Search (⌘K)">
               <Icon name="search" />
             </button>
-            <button className="top-bar-btn" title="Notifications">
-              <Icon name="notifications" />
-              <span className="notification-dot"></span>
-            </button>
+            
+            <div style={{ position: "relative" }}>
+              <button 
+                className="top-bar-btn" 
+                onClick={(e) => { e.stopPropagation(); setShowNotifs(!showNotifs); }}
+                title="Notifications"
+              >
+                <Icon name="notifications" />
+                {unreadCount > 0 && <span className="notification-dot"></span>}
+              </button>
+
+              {showNotifs && (
+                <div className="notif-dropdown animate-in" onClick={(e) => e.stopPropagation()}>
+                  <div className="notif-header">
+                    <span>Notifications</span>
+                    {unreadCount > 0 && <span className="notif-count">{unreadCount} new</span>}
+                  </div>
+                  <div className="notif-body">
+                    {notifications.length === 0 ? (
+                      <div className="notif-empty">No new alerts</div>
+                    ) : (
+                      notifications.map(n => (
+                        <div 
+                          key={n._id} 
+                          className={`notif-item ${!n.read ? 'unread' : ''}`}
+                          onClick={() => handleMarkRead(n._id)}
+                        >
+                          <div className={`notif-icon ${n.type}`}><Icon name={n.type === 'alert' ? 'warning' : n.type === 'success' ? 'check_circle' : 'info'} /></div>
+                          <div className="notif-content">
+                            <div className="notif-title">{n.title}</div>
+                            <div className="notif-msg">{n.message}</div>
+                            <div className="notif-time">{new Date(n.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                          </div>
+                          {!n.read && <div className="unread-pulse"></div>}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="top-bar-user" onClick={handleSignOut} title="Click to sign out">
               {photoURL ? (
-                <img src={photoURL} alt={displayName} style={{
-                  width: 36, height: 36, borderRadius: "50%", objectFit: "cover",
-                }} />
+                <img src={photoURL} alt={displayName} style={{ width: 36, height: 36, borderRadius: "50%", objectFit: "cover" }} />
               ) : (
                 <div className="avatar">{initials}</div>
               )}
@@ -136,7 +190,6 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Show loading spinner while checking auth state
   if (authLoading) {
     return (
       <div style={{
@@ -149,11 +202,20 @@ export default function App() {
     );
   }
 
+  const isVolunteerPath = window.location.pathname === "/volunteer";
+
   return (
     <BrowserRouter>
       {!user ? (
-        <Login onLogin={(u) => setUser(u)} />
+        // ── Auth gate ──
+        isVolunteerPath
+          ? <VolunteerAuth onLogin={(u) => setUser({ ...u, role: "volunteer" })} />
+          : <Login onLogin={(u) => setUser(u)} />
+      ) : user.role === "volunteer" ? (
+        // ── Volunteer dashboard ──
+        <VolunteerDashboard user={user} onLogout={() => setUser(null)} />
       ) : (
+        // ── NGO admin shell ──
         <AppShell user={user} />
       )}
     </BrowserRouter>

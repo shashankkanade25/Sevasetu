@@ -1,391 +1,681 @@
 import { useState } from "react";
-import { signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
+import {
+  signInWithPopup,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  updateProfile,
+} from "firebase/auth";
 import { auth, googleProvider } from "../firebase";
-
-function GoogleIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="20" height="20">
-      <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>
-      <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-      <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
-      <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-    </svg>
-  );
-}
+import SevaSetuLogo from "../components/SevaSetuLogo";
 
 export default function Login({ onLogin }) {
-  const [mode, setMode] = useState("login"); // "login" or "signup"
+  const [role, setRole] = useState("NGO");
+  const [mode, setMode] = useState("signup");
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [ngoName, setNgoName] = useState("");
-  const [ngoLocation, setNgoLocation] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  // NGO fields
+  const [ngoName, setNgoName] = useState("");
+  const [contactPerson, setContactPerson] = useState("");
+  const [focusArea, setFocusArea] = useState("");
+
+  // Volunteer fields
+  const [fullName, setFullName] = useState("");
+  const [city, setCity] = useState("");
+  const [skills, setSkills] = useState("");
+
   const clearError = () => setError("");
 
-  // ── Missing Firebase API Key UI Helper ──
-  const isMissingApiKey = import.meta.env.VITE_FIREBASE_API_KEY === "REPLACE_ME_WITH_YOUR_ACTUAL_API_KEY" || !import.meta.env.VITE_FIREBASE_API_KEY;
+  const isMissingApiKey =
+    import.meta.env.VITE_FIREBASE_API_KEY === "REPLACE_ME_WITH_YOUR_ACTUAL_API_KEY" ||
+    !import.meta.env.VITE_FIREBASE_API_KEY;
 
-  // ── Google Sign-In ──
-  const handleGoogleSignIn = async () => {
-    if (isMissingApiKey) {
-      console.warn("No Firebase API Key found. Bypassing Google Auth for demo purposes.");
-      onLogin({
-        uid: "demo-" + Date.now(),
-        displayName: "Demo User",
-        email: "demo@sevasetu.org",
-        photoURL: ""
-      });
-      return;
-    }
+  const handleSubmit = async (e) => {
+    e.preventDefault();
     setLoading(true);
     clearError();
     try {
+      if (isMissingApiKey) {
+        onLogin({
+          uid: "demo-" + Date.now(),
+          displayName:
+            role === "NGO" ? ngoName || "NGO Demo" : fullName || "Volunteer Demo",
+          email: email || "demo@example.com",
+          role,
+        });
+        return;
+      }
+      if (mode === "signup") {
+        const displayName = role === "NGO" ? ngoName : fullName;
+        if (!displayName) throw new Error("Name is required.");
+        if (password.length < 8)
+          throw new Error("Password must be at least 8 characters.");
+        const result = await createUserWithEmailAndPassword(auth, email, password);
+        await updateProfile(result.user, { displayName });
+        onLogin({ ...result.user, role });
+      } else {
+        const result = await signInWithEmailAndPassword(auth, email, password);
+        onLogin({ ...result.user, role });
+      }
+    } catch (err) {
+      if (
+        err.code === "auth/invalid-credential" ||
+        err.code === "auth/user-not-found" ||
+        err.code === "auth/wrong-password"
+      )
+        setError("Invalid email or password.");
+      else if (err.code === "auth/email-already-in-use")
+        setError("This email is already registered.");
+      else if (err.code === "auth/weak-password")
+        setError("Password must be at least 8 characters.");
+      else setError(err.message || "Authentication failed.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogle = async () => {
+    try {
+      if (isMissingApiKey) {
+        onLogin({
+          uid: "google-demo",
+          displayName: "Google User",
+          email: "google@demo.com",
+          role,
+        });
+        return;
+      }
       const result = await signInWithPopup(auth, googleProvider);
-      onLogin(result.user);
+      onLogin({ ...result.user, role });
     } catch (err) {
-      console.error("Google sign-in error:", err);
-      if (err.code === "auth/popup-closed-by-user") {
-        setError("Sign-in popup was closed. Please try again.");
-      } else if (err.code === "auth/api-key-not-valid") {
-        setError("Firebase Config Error: The API key provided is not valid. Please update frontend/.env with a valid key and restart the dev server.");
-      } else if (err.code === "auth/cancelled-popup-request") {
-        // ignore
-      } else {
-        setError(err.message || "Google sign-in failed. Please try again.");
-      }
-    } finally {
-      setLoading(false);
+      setError(err.message || "Google Sign-In failed.");
     }
   };
 
-  // ── Email/Password Login ──
-  const handleEmailLogin = async (e) => {
-    e.preventDefault();
-    if (isMissingApiKey) {
-      console.warn("No Firebase API Key found. Bypassing Email Auth for demo purposes.");
-      onLogin({
-        uid: "demo-" + Date.now(),
-        displayName: "Demo Admin",
-        email: email || "admin@sevasetu.org",
-      });
-      return;
-    }
-    if (!email || !password) return setError("Please fill in all fields.");
-    setLoading(true);
-    clearError();
-    try {
-      const result = await signInWithEmailAndPassword(auth, email, password);
-      onLogin(result.user);
-    } catch (err) {
-      console.error("Email login error:", err);
-      if (err.code === "auth/user-not-found" || err.code === "auth/invalid-credential") {
-        setError("Invalid email or password. Please try again.");
-      } else if (err.code === "auth/wrong-password") {
-        setError("Incorrect password.");
-      } else if (err.code === "auth/too-many-requests") {
-        setError("Too many attempts. Please try again later.");
-      } else {
-        setError(err.message || "Login failed.");
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // ── Email/Password Signup ──
-  const handleEmailSignup = async (e) => {
-    e.preventDefault();
-    if (isMissingApiKey) {
-      console.warn("No Firebase API Key found. Bypassing Signup Auth for demo purposes.");
-      onLogin({
-        uid: "demo-" + Date.now(),
-        displayName: ngoName || "New Demo NGO",
-        email: email || "new@sevasetu.org",
-      });
-      return;
-    }
-    if (!email || !password || !ngoName) return setError("Please fill in all required fields.");
-    if (password.length < 6) return setError("Password must be at least 6 characters.");
-    if (password !== confirmPassword) return setError("Passwords do not match.");
-    setLoading(true);
-    clearError();
-    try {
-      const result = await createUserWithEmailAndPassword(auth, email, password);
-      // Update profile with NGO name
-      await updateProfile(result.user, {
-        displayName: ngoName,
-      });
-      onLogin(result.user);
-    } catch (err) {
-      console.error("Signup error:", err);
-      if (err.code === "auth/email-already-in-use") {
-        setError("This email is already registered. Please sign in instead.");
-      } else if (err.code === "auth/weak-password") {
-        setError("Password is too weak. Use at least 6 characters.");
-      } else if (err.code === "auth/invalid-email") {
-        setError("Invalid email address.");
-      } else {
-        setError(err.message || "Sign up failed.");
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const switchMode = () => {
-    setMode(mode === "login" ? "signup" : "login");
-    setError("");
-    setEmail("");
-    setPassword("");
-    setConfirmPassword("");
-    setNgoName("");
-    setNgoLocation("");
-  };
+  const isNGO = role === "NGO";
+  const isLogin = mode === "login";
 
   return (
-    <div className="login-page">
-      <div className="login-left">
-        <div className="login-form-wrap">
-          {/* Logo */}
-          <div className="login-brand">
-            <img src="/Sevasetu-logo.png" alt="SevaSetu Logo" style={{ width: 52, height: 52, objectFit: "contain" }} />
-            <span className="brand-name">Seva<span>Setu</span></span>
-          </div>
-
-          {mode === "login" ? (
-            <>
-              <h1 className="login-title">Welcome back</h1>
-              <p className="login-subtitle">
-                Sign in to your NGO dashboard to manage community needs and coordinate volunteers.
-              </p>
-
-              {/* Error message */}
-              {error && (
-                <div className="login-error animate-in">
-                  <span className="material-symbols-outlined" style={{ fontSize: 18 }}>error</span>
-                  {error}
-                </div>
-              )}
-
-              <form className="login-form" onSubmit={handleEmailLogin}>
-                <div className="login-input-group">
-                  <label htmlFor="email">Email address</label>
-                  <input
-                    id="email"
-                    type="email"
-                    className="login-input"
-                    placeholder="admin@sevasetu.org"
-                    value={email}
-                    onChange={e => { setEmail(e.target.value); clearError(); }}
-                    autoComplete="email"
-                  />
-                </div>
-
-                <div className="login-input-group">
-                  <label htmlFor="password">Password</label>
-                  <input
-                    id="password"
-                    type="password"
-                    className="login-input"
-                    placeholder="Enter your password"
-                    value={password}
-                    onChange={e => { setPassword(e.target.value); clearError(); }}
-                    autoComplete="current-password"
-                  />
-                </div>
-
-                <button type="submit" className="login-btn" disabled={loading}>
-                  {loading ? (
-                    <span style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center" }}>
-                      <span className="spinner" style={{ width: 18, height: 18, borderWidth: 2, margin: 0, borderTopColor: "#fff", borderColor: "rgba(255,255,255,0.3)" }}></span>
-                      Signing in…
-                    </span>
-                  ) : "Sign in"}
-                </button>
-
-                <div className="login-divider">
-                  <span>or continue with</span>
-                </div>
-
-                <button
-                  type="button"
-                  className="login-google-btn"
-                  onClick={handleGoogleSignIn}
-                  disabled={loading}
-                >
-                  <GoogleIcon />
-                  Sign in with Google
-                </button>
-              </form>
-
-              <div className="login-footer">
-                New to SevaSetu? <a href="#" onClick={(e) => { e.preventDefault(); switchMode(); }}>Create an account</a>
-              </div>
-            </>
-          ) : (
-            <>
-              <h1 className="login-title">Create your account</h1>
-              <p className="login-subtitle">
-                Register your NGO to start prioritizing community needs and coordinating volunteer response.
-              </p>
-
-              {/* Error message */}
-              {error && (
-                <div className="login-error animate-in">
-                  <span className="material-symbols-outlined" style={{ fontSize: 18 }}>error</span>
-                  {error}
-                </div>
-              )}
-
-              <form className="login-form" onSubmit={handleEmailSignup}>
-                <div className="login-input-group">
-                  <label htmlFor="ngo-name">NGO / Organization Name *</label>
-                  <input
-                    id="ngo-name"
-                    type="text"
-                    className="login-input"
-                    placeholder="e.g., Helping Hands Foundation"
-                    value={ngoName}
-                    onChange={e => { setNgoName(e.target.value); clearError(); }}
-                    autoComplete="organization"
-                  />
-                </div>
-
-                <div className="login-input-group">
-                  <label htmlFor="ngo-location">Location (optional)</label>
-                  <input
-                    id="ngo-location"
-                    type="text"
-                    className="login-input"
-                    placeholder="e.g., Pune, Maharashtra"
-                    value={ngoLocation}
-                    onChange={e => { setNgoLocation(e.target.value); clearError(); }}
-                    autoComplete="address-level2"
-                  />
-                </div>
-
-                <div className="login-input-group">
-                  <label htmlFor="signup-email">Email address *</label>
-                  <input
-                    id="signup-email"
-                    type="email"
-                    className="login-input"
-                    placeholder="you@your-ngo.org"
-                    value={email}
-                    onChange={e => { setEmail(e.target.value); clearError(); }}
-                    autoComplete="email"
-                  />
-                </div>
-
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-                  <div className="login-input-group">
-                    <label htmlFor="signup-password">Password *</label>
-                    <input
-                      id="signup-password"
-                      type="password"
-                      className="login-input"
-                      placeholder="Min 6 characters"
-                      value={password}
-                      onChange={e => { setPassword(e.target.value); clearError(); }}
-                      autoComplete="new-password"
-                    />
-                  </div>
-                  <div className="login-input-group">
-                    <label htmlFor="signup-confirm">Confirm Password *</label>
-                    <input
-                      id="signup-confirm"
-                      type="password"
-                      className="login-input"
-                      placeholder="Re-enter password"
-                      value={confirmPassword}
-                      onChange={e => { setConfirmPassword(e.target.value); clearError(); }}
-                      autoComplete="new-password"
-                    />
-                  </div>
-                </div>
-
-                <button type="submit" className="login-btn" disabled={loading}>
-                  {loading ? (
-                    <span style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center" }}>
-                      <span className="spinner" style={{ width: 18, height: 18, borderWidth: 2, margin: 0, borderTopColor: "#fff", borderColor: "rgba(255,255,255,0.3)" }}></span>
-                      Creating account…
-                    </span>
-                  ) : "Create Account"}
-                </button>
-
-                <div className="login-divider">
-                  <span>or sign up with</span>
-                </div>
-
-                <button
-                  type="button"
-                  className="login-google-btn"
-                  onClick={handleGoogleSignIn}
-                  disabled={loading}
-                >
-                  <GoogleIcon />
-                  Sign up with Google
-                </button>
-              </form>
-
-              <div className="login-footer">
-                Already have an account? <a href="#" onClick={(e) => { e.preventDefault(); switchMode(); }}>Sign in</a>
-              </div>
-            </>
-          )}
-        </div>
+    <div
+      style={{
+        minHeight: "100vh",
+        width: "100%",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "linear-gradient(135deg, #ece8ff 0%, #f5f3ff 40%, #eef0ff 100%)",
+        padding: 0,
+        fontFamily:
+          "'Inter', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif",
+        boxSizing: "border-box",
+      }}
+    >
+      {/* ─── LOGO ABOVE CARD ─── */}
+      <div style={{ textAlign: "center", marginBottom: 4, userSelect: "none", display: "flex", flexDirection: "column", alignItems: "center" }}>
+        <SevaSetuLogo width={160} showText={true} />
+        <p
+          style={{
+            fontSize: 12,
+            color: "#666",
+            fontWeight: 500,
+            letterSpacing: 0.2,
+            margin: "0",
+            opacity: 0.8
+          }}
+        >
+          Connecting NGOs with Volunteers for a Better Tomorrow.
+        </p>
       </div>
 
-      <div className="login-right">
-        {/* Decorative background shapes */}
-        <div className="login-bg-shape" style={{ width: 400, height: 400, top: -100, right: -100, background: 'var(--red-300)' }}></div>
-        <div className="login-bg-shape" style={{ width: 300, height: 300, bottom: -80, left: -80, background: 'var(--red-400)' }}></div>
+      {/* ─── MAIN CARD ─── */}
+      <div
+        style={{
+          width: "92%",
+          maxWidth: 1040,
+          background: "#fff",
+          borderRadius: 32,
+          boxShadow: "0 20px 70px rgba(108, 71, 255, 0.10), 0 2px 12px rgba(0,0,0,0.04)",
+          display: "flex",
+          overflow: "hidden",
+          minHeight: 480,
+        }}
+      >
+        {/* ═══════ LEFT PANEL ═══════ */}
+        <div
+          style={{
+            flex: "1 1 54%",
+            padding: "16px 30px 14px",
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "center",
+          }}
+        >
+          {/* ROLE SELECTOR */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+            {/* NGO Card */}
+            <button
+              type="button"
+              onClick={() => { setRole("NGO"); clearError(); }}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+                padding: "10px 10px",
+                borderRadius: 14,
+                border: isNGO ? "2.5px solid #6c47ff" : "2px solid #e5e5e5",
+                background: isNGO ? "#f8f5ff" : "#fff",
+                cursor: "pointer",
+                transition: "all 0.2s",
+                outline: "none",
+              }}
+            >
+              <span
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: 12,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: isNGO ? "#6c47ff" : "#f3f3f3",
+                  color: isNGO ? "#fff" : "#888",
+                  transition: "all 0.2s",
+                }}
+              >
+                <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
+                </svg>
+              </span>
+              <span
+                style={{
+                  fontWeight: 700,
+                  fontSize: 13,
+                  color: isNGO ? "#6c47ff" : "#666",
+                }}
+              >
+                NGO
+              </span>
+            </button>
 
-        <div className="login-right-content">
-          <div className="login-illustration">
-            {/* Project logo as hero */}
-            <img src="/Sevasetu-logo.png" alt="SevaSetu" style={{
-              width: 200, height: 200, objectFit: "contain",
-              filter: "drop-shadow(0 8px 24px rgba(220,38,38,0.15))",
-              animation: "float 6s ease-in-out infinite",
-            }} />
+            {/* Volunteer Card */}
+            <button
+              type="button"
+              onClick={() => { setRole("Volunteer"); clearError(); }}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+                padding: "10px 10px",
+                borderRadius: 14,
+                border: !isNGO ? "2.5px solid #6c47ff" : "2px solid #e5e5e5",
+                background: !isNGO ? "#f8f5ff" : "#fff",
+                cursor: "pointer",
+                transition: "all 0.2s",
+                outline: "none",
+              }}
+            >
+              <span
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: 12,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: !isNGO ? "#6c47ff" : "#f3f3f3",
+                  color: !isNGO ? "#fff" : "#888",
+                  transition: "all 0.2s",
+                }}
+              >
+                <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                </svg>
+              </span>
+              <span
+                style={{
+                  fontWeight: 700,
+                  fontSize: 13,
+                  color: !isNGO ? "#6c47ff" : "#666",
+                }}
+              >
+                Volunteer
+              </span>
+            </button>
           </div>
 
-          <div className="login-tagline">
-            Connecting needs with<br />the right help
-          </div>
-          <div className="login-tagline-sub">
-            Data-driven disaster response & volunteer coordination
-          </div>
-
-          {/* Platform stats */}
-          <div style={{
-            display: "flex", gap: 24, marginTop: 32, justifyContent: "center",
-          }}>
-            {[
-              { label: "NGOs", value: "50+", icon: "business" },
-              { label: "Volunteers", value: "1000+", icon: "group" },
-              { label: "Issues Resolved", value: "5K+", icon: "task_alt" },
-            ].map(stat => (
-              <div key={stat.label} style={{
+          {/* ERROR */}
+          {error && (
+            <div
+              style={{
+                marginBottom: 14,
+                fontSize: 12.5,
+                fontWeight: 600,
+                color: "#dc2626",
+                background: "#fef2f2",
+                border: "1px solid #fecaca",
+                borderRadius: 10,
+                padding: "8px 14px",
                 textAlign: "center",
-                background: "rgba(255,255,255,0.6)",
-                backdropFilter: "blur(8px)",
-                padding: "14px 18px",
-                borderRadius: "var(--radius)",
-                border: "1px solid rgba(220,38,38,0.1)",
-              }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 20, color: "var(--red-600)", display: "block", marginBottom: 4 }}>{stat.icon}</span>
-                <div style={{ fontSize: "1.1rem", fontWeight: 800, color: "var(--red-800)" }}>{stat.value}</div>
-                <div style={{ fontSize: ".7rem", fontWeight: 600, color: "var(--red-600)", opacity: 0.7 }}>{stat.label}</div>
+              }}
+            >
+              {error}
+            </div>
+          )}
+
+          {/* FORM */}
+          <form onSubmit={handleSubmit}>
+            {/* ── SIGNUP: NGO ── */}
+            {!isLogin && isNGO && (
+              <>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+                  <div>
+                    <label style={labelStyle}>NGO Name</label>
+                    <input
+                      style={inputStyle}
+                      type="text"
+                      required
+                      placeholder="NGO name"
+                      value={ngoName}
+                      onChange={(e) => { setNgoName(e.target.value); clearError(); }}
+                    />
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Contact Person</label>
+                    <input
+                      style={inputStyle}
+                      type="text"
+                      required
+                      placeholder="contact person"
+                      value={contactPerson}
+                      onChange={(e) => { setContactPerson(e.target.value); clearError(); }}
+                    />
+                  </div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+                  <div>
+                    <label style={labelStyle}>NGO Email</label>
+                    <input
+                      style={inputStyle}
+                      type="email"
+                      required
+                      placeholder="email address"
+                      value={email}
+                      onChange={(e) => { setEmail(e.target.value); clearError(); }}
+                    />
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Password</label>
+                    <input
+                      style={inputStyle}
+                      type="password"
+                      required
+                      placeholder="password (min. 8 characters)"
+                      value={password}
+                      onChange={(e) => { setPassword(e.target.value); clearError(); }}
+                    />
+                  </div>
+                </div>
+                <div style={{ marginBottom: 14 }}>
+                  <label style={labelStyle}>NGO Focus Area</label>
+                  <select
+                    style={{ ...inputStyle, cursor: "pointer", color: focusArea ? "#333" : "#999" }}
+                    value={focusArea}
+                    onChange={(e) => setFocusArea(e.target.value)}
+                  >
+                    <option value="">e.g., Education, Healthcare</option>
+                    <option value="Education">📚 Education</option>
+                    <option value="Healthcare">🏥 Healthcare</option>
+                    <option value="Environment">🌿 Environment</option>
+                    <option value="Women Empowerment">💪 Women Empowerment</option>
+                    <option value="Child Welfare">👶 Child Welfare</option>
+                    <option value="Disaster Relief">🆘 Disaster Relief</option>
+                    <option value="Livelihood">🤝 Livelihood</option>
+                  </select>
+                </div>
+              </>
+            )}
+
+            {/* ── SIGNUP: VOLUNTEER ── */}
+            {!isLogin && !isNGO && (
+              <>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+                  <div>
+                    <label style={labelStyle}>Full Name</label>
+                    <input
+                      style={inputStyle}
+                      type="text"
+                      required
+                      placeholder="full name"
+                      value={fullName}
+                      onChange={(e) => { setFullName(e.target.value); clearError(); }}
+                    />
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Email Address</label>
+                    <input
+                      style={inputStyle}
+                      type="email"
+                      required
+                      placeholder="email address"
+                      value={email}
+                      onChange={(e) => { setEmail(e.target.value); clearError(); }}
+                    />
+                  </div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+                  <div>
+                    <label style={labelStyle}>City/Location</label>
+                    <input
+                      style={inputStyle}
+                      type="text"
+                      placeholder="location"
+                      value={city}
+                      onChange={(e) => setCity(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Password</label>
+                    <input
+                      style={inputStyle}
+                      type="password"
+                      required
+                      placeholder="password (min. 8 characters)"
+                      value={password}
+                      onChange={(e) => { setPassword(e.target.value); clearError(); }}
+                    />
+                  </div>
+                </div>
+                <div style={{ marginBottom: 14 }}>
+                  <label style={labelStyle}>Your Skills</label>
+                  <input
+                    style={inputStyle}
+                    type="text"
+                    placeholder="e.g., Teaching, Mentoring, Medical Aid"
+                    value={skills}
+                    onChange={(e) => setSkills(e.target.value)}
+                  />
+                </div>
+              </>
+            )}
+
+            {/* ── LOGIN FIELDS ── */}
+            {isLogin && (
+              <>
+                <div style={{ marginBottom: 12 }}>
+                  <label style={labelStyle}>Email Address</label>
+                  <input
+                    style={inputStyle}
+                    type="email"
+                    required
+                    placeholder="email address"
+                    value={email}
+                    onChange={(e) => { setEmail(e.target.value); clearError(); }}
+                  />
+                </div>
+                <div style={{ marginBottom: 14 }}>
+                  <label style={labelStyle}>Password</label>
+                  <input
+                    style={inputStyle}
+                    type="password"
+                    required
+                    placeholder="password"
+                    value={password}
+                    onChange={(e) => { setPassword(e.target.value); clearError(); }}
+                  />
+                </div>
+              </>
+            )}
+
+            {/* SUBMIT */}
+            <button type="submit" disabled={loading} style={submitBtnStyle}>
+              {loading ? (
+                <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                  <svg style={{ animation: "spin 1s linear infinite" }} width="16" height="16" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="10" stroke="white" strokeWidth="3" opacity="0.3" />
+                    <path d="M4 12a8 8 0 018-8" stroke="white" strokeWidth="3" strokeLinecap="round" />
+                  </svg>
+                  Please wait…
+                </span>
+              ) : isLogin
+                ? `Login as ${role}`
+                : `Create ${isNGO ? "NGO" : "Volunteer"} Account`}
+            </button>
+          </form>
+
+          {/* GOOGLE SSO */}
+          <div style={{ marginTop: 20, textAlign: "center" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+              <div style={{ flex: 1, height: 1, background: "#e5e5e5" }} />
+              <span style={{ fontSize: 12, color: "#999", fontWeight: 500, whiteSpace: "nowrap" }}>
+                Or continue with:
+              </span>
+              <div style={{ flex: 1, height: 1, background: "#e5e5e5" }} />
+            </div>
+            <button
+              type="button"
+              onClick={handleGoogle}
+              style={{
+                width: 48,
+                height: 48,
+                borderRadius: 14,
+                border: "2px solid #e5e5e5",
+                background: "#fff",
+                cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                transition: "all 0.2s",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = "#6c47ff";
+                e.currentTarget.style.boxShadow = "0 4px 14px rgba(108,71,255,0.15)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = "#e5e5e5";
+                e.currentTarget.style.boxShadow = "none";
+              }}
+            >
+              <img
+                src="https://www.svgrepo.com/show/475656/google-color.svg"
+                alt="Google"
+                style={{ width: 22, height: 22 }}
+              />
+            </button>
+          </div>
+
+          {/* TOGGLE MODE */}
+          <p style={{ textAlign: "center", fontSize: 13, color: "#888", fontWeight: 500, marginTop: 18 }}>
+            {isLogin ? "Don't have an account? " : "Already have an account? "}
+            <button
+              type="button"
+              onClick={() => { setMode(isLogin ? "signup" : "login"); clearError(); }}
+              style={{
+                background: "none",
+                border: "none",
+                color: "#6c47ff",
+                fontWeight: 700,
+                cursor: "pointer",
+                fontSize: 13,
+                textDecoration: "none",
+                padding: 0,
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.textDecoration = "underline")}
+              onMouseLeave={(e) => (e.currentTarget.style.textDecoration = "none")}
+            >
+              {isLogin ? "Sign Up" : "Login"}
+            </button>
+          </p>
+        </div>
+
+        {/* ═══════ RIGHT PANEL ═══════ */}
+        <div
+          style={{
+            flex: "1 1 46%",
+            background: "linear-gradient(135deg, #4f34c2 0%, #6543e8 45%, #7c5cff 100%)",
+            position: "relative",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            overflow: "hidden",
+            padding: "40px 32px",
+          }}
+        >
+          {/* Subtle grid pattern */}
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              opacity: 0.16,
+              backgroundImage:
+                "linear-gradient(rgba(255,255,255,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.5) 1px, transparent 1px)",
+              backgroundSize: "30px 30px",
+            }}
+          />
+
+          {/* Glow blobs */}
+          <div
+            style={{
+              position: "absolute",
+              top: -60,
+              right: -60,
+              width: 200,
+              height: 200,
+              background: "rgba(255,255,255,0.08)",
+              borderRadius: "50%",
+              filter: "blur(40px)",
+            }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              bottom: -40,
+              left: -40,
+              width: 180,
+              height: 180,
+              background: "rgba(139,76,247,0.2)",
+              borderRadius: "50%",
+              filter: "blur(50px)",
+            }}
+          />
+
+          {/* Image Card */}
+          <div className="hero-card" style={{ position: "relative", zIndex: 2, width: "100%", maxWidth: 300 }}>
+            <div
+              style={{
+                borderRadius: 24,
+                overflow: "hidden",
+                border: "3px solid rgba(255,255,255,0.2)",
+                boxShadow: "0 24px 50px rgba(0,0,0,0.25)",
+                position: "relative",
+                aspectRatio: "3/4",
+              }}
+            >
+              <img
+                src="/ngo image.jpg"
+                alt="SevaSetu Community"
+                className="login-hero-img"
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "cover",
+                  display: "block",
+                  transition: "transform 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94)",
+                }}
+              />
+              {/* Bottom gradient overlay */}
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  background:
+                    "linear-gradient(to top, rgba(40, 10, 120, 0.85) 0%, rgba(40, 10, 120, 0.35) 40%, transparent 65%)",
+                }}
+              />
+              {/* Overlay text */}
+              <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, padding: "20px 22px" }}>
+                <p
+                  style={{
+                    color: "#fff",
+                    fontSize: 18,
+                    fontWeight: 800,
+                    lineHeight: 1.35,
+                    margin: 0,
+                    textShadow: "0 2px 8px rgba(0,0,0,0.3)",
+                  }}
+                >
+                  Building Bridges,
+                  <br />
+                  Building Communities.
+                  <br />
+                  <span style={{ color: "#fde047" }}>Empower change.</span>
+                </p>
               </div>
-            ))}
+            </div>
+
+
           </div>
         </div>
       </div>
+
+      {/* Spin keyframe and hover styles injected via style tag */}
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .hero-card {
+          cursor: pointer;
+        }
+        .hero-card:hover .login-hero-img {
+          transform: scale(1.08) !important;
+        }
+        @media (max-width: 768px) {
+          /* Stack card vertically on mobile, hide image panel */
+        }
+      `}</style>
     </div>
   );
 }
+
+/* ─── Shared styles ─── */
+const labelStyle = {
+  display: "block",
+  fontSize: 11.5,
+  fontWeight: 700,
+  color: "#333",
+  marginBottom: 2,
+};
+
+const inputStyle = {
+  width: "100%",
+  padding: "7px 10px",
+  fontSize: 12.5,
+  fontWeight: 500,
+  color: "#333",
+  background: "#fff",
+  border: "1.5px solid #e0e0e0",
+  borderRadius: 8,
+  outline: "none",
+  transition: "border-color 0.2s, box-shadow 0.2s",
+  boxSizing: "border-box",
+};
+
+const submitBtnStyle = {
+  width: "100%",
+  padding: "9px 0",
+  background: "linear-gradient(135deg, #6c47ff, #8b5cf6)",
+  color: "#fff",
+  fontWeight: 700,
+  fontSize: 13.5,
+  border: "none",
+  borderRadius: 12,
+  cursor: "pointer",
+  boxShadow: "0 8px 24px rgba(108, 71, 255, 0.30)",
+  transition: "all 0.2s",
+  letterSpacing: 0.3,
+};

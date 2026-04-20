@@ -9,10 +9,20 @@ const pdf = require('pdf-parse');
 const Issue = require('./models/Issue');
 const Volunteer = require('./models/Volunteer');
 const Assignment = require('./models/Assignment');
+const Notification = require('./models/Notification');
 const calculatePriority = require('./utils/priority');
 const matchVolunteer = require('./utils/match');
 
 const app = express();
+
+// Helper for notifications
+async function notify(userId, type, title, message, issueId = null) {
+  try {
+    await Notification.create({ userId, type, title, message, issueId });
+  } catch (err) {
+    console.error("Notification failed:", err);
+  }
+}
 
 // Enable CORS
 app.use(cors());
@@ -114,11 +124,42 @@ app.post("/upload-pdf", upload.single("file"), async (req, res) => {
   }
 });
 
-// GET all issues — sorted by priority (most critical first)
+// GET all issues — with rich filtering and search
 app.get("/issues", async (req, res) => {
   try {
-    const issues = await Issue.find().sort({ priorityScore: -1 });
+    const { location, category, urgency, status, search } = req.query;
+    let query = {};
+
+    if (location && location !== 'All') query.location = location;
+    if (category && category !== 'All') query.category = category;
+    if (urgency && urgency !== 'All') query.urgency = urgency.toLowerCase();
+    if (status && status !== 'All') query.status = status;
+    if (search) {
+      query.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { location: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    const issues = await Issue.find(query).sort({ priorityScore: -1 });
     res.json(issues);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET issue stats for dashboard tiles
+app.get("/issues/stats", async (req, res) => {
+  try {
+    const total = await Issue.countDocuments();
+    const urgent = await Issue.countDocuments({ priorityScore: { $gte: 75 } });
+    const resolved = await Issue.countDocuments({ status: "resolved" });
+    const open = await Issue.countDocuments({ status: { $ne: "resolved" } });
+    const categoryStats = await Issue.aggregate([
+      { $group: { _id: "$category", count: { $sum: 1 } } }
+    ]);
+
+    res.json({ total, urgent, resolved, open, categoryStats });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -170,6 +211,42 @@ app.get("/volunteers", async (req, res) => {
   }
 });
 
+// Get a single volunteer by email
+app.get("/volunteers/by-email", async (req, res) => {
+  try {
+    const { email } = req.query;
+    if (!email) return res.status(400).json({ error: "email query param is required" });
+
+    const volunteer = await Volunteer.findOne({ email });
+    if (!volunteer) return res.status(404).json({ error: "Volunteer not found" });
+
+    res.json(volunteer);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get a single volunteer by MongoDB _id
+app.get("/volunteers/:id", async (req, res) => {
+  try {
+    const v = await Volunteer.findById(req.params.id);
+    if (!v) return res.status(404).json({ error: "Not found" });
+    res.json(v);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update volunteer availability
+app.patch("/volunteers/:id", async (req, res) => {
+  try {
+    const v = await Volunteer.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    res.json(v);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─────────────────────────────────────────────
 // MATCHING
 // ─────────────────────────────────────────────
@@ -205,17 +282,121 @@ app.post("/assign", async (req, res) => {
   try {
     const { issueId, volunteerId } = req.body;
     const assignment = await Assignment.create({ issueId, volunteerId });
+    
+    // Update Issue status
+    await Issue.findByIdAndUpdate(issueId, { status: 'assigned', assignedTo: volunteerId });
+
+    // Notify Volunteer
+    const vol = await Volunteer.findById(volunteerId);
+    if (vol) {
+      await notify(vol.firebaseUid || vol._id, "assignment", "New Assignment", `You have been assigned to a new task.`, issueId);
+    }
+
     res.json(assignment);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Get all assignments
+// Get all assignments — filter by volunteerId if provided
 app.get("/assignments", async (req, res) => {
   try {
-    const assignments = await Assignment.find();
+    const filter = req.query.volunteerId ? { volunteerId: req.query.volunteerId } : {};
+    const assignments = await Assignment.find(filter).sort({ createdAt: -1 });
     res.json(assignments);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH assignment status (pending → in_progress → completed)
+app.patch("/assignment/:id", async (req, res) => {
+  try {
+    const { status, notes } = req.body;
+    const assignment = await Assignment.findByIdAndUpdate(
+      req.params.id,
+      { 
+        status, 
+        notes, 
+        ...(status === 'completed' ? { completedAt: Date.now() } : {}),
+        ...(status === 'in_progress' ? { acceptedAt: Date.now() } : {})
+      },
+      { new: true }
+    );
+    if (!assignment) return res.status(404).json({ error: "Assignment not found" });
+
+    // Update the issue status accordingly
+    const issueStatus = status === 'completed' ? 'resolved' : 'assigned';
+    await Issue.findByIdAndUpdate(assignment.issueId, { 
+      status: issueStatus, 
+      ...(status === 'completed' ? { resolvedAt: Date.now() } : {}) 
+    });
+
+    if (status === 'completed') {
+      // Reward the volunteer
+      await Volunteer.findByIdAndUpdate(assignment.volunteerId, { $inc: { completedTasks: 1 } });
+      // Notify Admin
+      await notify("admin", "completion", "Task Completed", `Goal reached! Issue #${assignment.issueId.toString().slice(-4)} marked as resolved.`, assignment.issueId);
+      // Notify Volunteer
+      const vol = await Volunteer.findById(assignment.volunteerId);
+      if (vol) {
+        await notify(vol.firebaseUid || vol._id, "success", "Great Work!", `You've successfully completed the assignment. Thank you!`, assignment.issueId);
+      }
+    } else if (status === 'in_progress') {
+       // Notify Admin
+       await notify("admin", "update", "Task Started", `Volunteer is now on-site for Issue #${assignment.issueId.toString().slice(-4)}.`, assignment.issueId);
+    }
+
+    res.json(assignment);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────
+// NOTIFICATIONS
+// ─────────────────────────────────────────────
+
+app.get("/notifications", async (req, res) => {
+  try {
+    const { userId } = req.query;
+    const notifs = await Notification.find({ userId }).sort({ createdAt: -1 }).limit(20);
+    res.json(notifs);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.patch("/notifications/:id/read", async (req, res) => {
+  try {
+    await Notification.findByIdAndUpdate(req.params.id, { read: true });
+    res.json({ message: "Read" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────
+// ANALYTICS
+// ─────────────────────────────────────────────
+
+app.get("/analytics/overview", async (req, res) => {
+  try {
+    const totalIssues = await Issue.countDocuments();
+    const resolvedIssues = await Issue.countDocuments({ status: "resolved" });
+    const catStats = await Issue.aggregate([{ $group: { _id: "$category", count: { $sum: 1 } } }]);
+    const locStats = await Issue.aggregate([{ $group: { _id: "$location", count: { $sum: 1 } } }]);
+    
+    // Sort locStats by count desc
+    locStats.sort((a, b) => b.count - a.count);
+
+    res.json({
+      totalIssues,
+      resolvedIssues,
+      resolutionRate: totalIssues > 0 ? (resolvedIssues / totalIssues) * 100 : 0,
+      categoryDistribution: catStats,
+      mostAffectedAreas: locStats.slice(0, 5)
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
