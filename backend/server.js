@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
@@ -401,6 +402,11 @@ app.get("/analytics/overview", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ─────────────────────────────────────────────
+// AI ANALYTICS ROUTE
+// ─────────────────────────────────────────────
+app.use('/api', require('./routes/aiAnalytics'));
 
 // ─────────────────────────────────────────────
 // START SERVER

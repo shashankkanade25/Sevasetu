@@ -8,6 +8,7 @@ import Matching from "./pages/Matching";
 import Assignments from "./pages/Assignments";
 import Upload from "./pages/Upload";
 import Insights from "./pages/Insights";
+import AIAnalytics from "./pages/AIAnalytics";
 import Login from "./pages/Login";
 import VolunteerAuth from "./pages/VolunteerAuth";
 import VolunteerDashboard from "./pages/VolunteerDashboard";
@@ -22,6 +23,7 @@ const NAV_ITEMS = [
   { to: "/", icon: "dashboard", label: "Dashboard", end: true },
   { to: "/upload", icon: "cloud_upload", label: "Data Upload" },
   { to: "/insights", icon: "insights", label: "Insights" },
+  { to: "/ai-analytics", icon: "neurology", label: "AI Decision Engine" },
   { to: "/matching", icon: "hub", label: "Matching" },
   { to: "/volunteers", icon: "group", label: "Volunteers" },
   { to: "/assignments", icon: "assignment_turned_in", label: "Assignments" },
@@ -31,6 +33,7 @@ const PAGE_TITLES = {
   "/": "Dashboard",
   "/upload": "Data Upload",
   "/insights": "Insights",
+  "/ai-analytics": "AI Decision Engine",
   "/matching": "Matching & Allocation",
   "/volunteers": "Volunteers",
   "/assignments": "Assignments",
@@ -168,6 +171,7 @@ function AppShell({ user }) {
             <Route path="/" element={<Dashboard />} />
             <Route path="/upload" element={<Upload />} />
             <Route path="/insights" element={<Insights />} />
+            <Route path="/ai-analytics" element={<AIAnalytics />} />
             <Route path="/volunteers" element={<Volunteers />} />
             <Route path="/matching" element={<Matching />} />
             <Route path="/assignments" element={<Assignments />} />

@@ -30,3 +30,6 @@ export const markNotifRead    = (id)         => api.patch(`/notifications/${id}/
 
 // Analytics
 export const getAnalyticsOverview = ()      => api.get("/analytics/overview");
+
+// AI Analytics
+export const getAIAnalytics      = ()      => api.get("/api/ai-analytics");
