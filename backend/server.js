@@ -11,8 +11,11 @@ const Issue = require('./models/Issue');
 const Volunteer = require('./models/Volunteer');
 const Assignment = require('./models/Assignment');
 const Notification = require('./models/Notification');
+const NGO = require('./models/NGO');
 const calculatePriority = require('./utils/priority');
 const matchVolunteer = require('./utils/match');
+const { verifyToken } = require('./middleware/verifyToken');
+const authRouter = require('./routes/auth');
 
 const app = express();
 
@@ -30,6 +33,11 @@ app.use(cors());
 
 // Parse JSON bodies
 app.use(express.json());
+
+// ─────────────────────────────────────────────
+// AUTH ROUTES
+// ─────────────────────────────────────────────
+app.use('/auth', authRouter);
 
 // MongoDB Connection
 mongoose.connect("mongodb+srv://sevasetu_db_user:Shashank+1233@sevasetu.dpigm7b.mongodb.net/")
@@ -282,8 +290,13 @@ app.get("/match/:issueId", async (req, res) => {
 app.post("/assign", async (req, res) => {
   try {
     const { issueId, volunteerId } = req.body;
-    const assignment = await Assignment.create({ issueId, volunteerId });
-    
+
+    // Guard: prevent duplicate active assignments on same issue
+    const existing = await Assignment.findOne({ issueId, status: { $in: ["assigned", "in_progress"] } });
+    if (existing) return res.status(409).json({ error: "Issue already has an active assignment" });
+
+    const assignment = await Assignment.create({ issueId, volunteerId, status: "assigned" });
+
     // Update Issue status
     await Issue.findByIdAndUpdate(issueId, { status: 'assigned', assignedTo: volunteerId });
 
@@ -398,6 +411,73 @@ app.get("/analytics/overview", async (req, res) => {
       categoryDistribution: catStats,
       mostAffectedAreas: locStats.slice(0, 5)
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────
+// VOLUNTEER-FACING APIS
+// ─────────────────────────────────────────────
+
+// GET /recommendations/:volunteerId  (JWT protected)
+app.get("/recommendations/:volunteerId", verifyToken, async (req, res) => {
+  try {
+    const volunteer = await Volunteer.findById(req.params.volunteerId);
+    if (!volunteer) return res.status(404).json({ error: "Volunteer not found" });
+
+    // Get all open issues (not yet assigned or resolved)
+    const issues = await Issue.find({ status: "open" }).sort({ priorityScore: -1 });
+
+    // Score each issue against this volunteer
+    const scored = issues.map(issue => {
+      const matchScore = matchVolunteer(issue, volunteer);
+      return { ...issue.toObject(), matchScore };
+    });
+
+    // Sort by matchScore DESC then priorityScore DESC
+    scored.sort((a, b) => b.matchScore - a.matchScore || b.priorityScore - a.priorityScore);
+
+    res.json(scored);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /assignments/active/:volunteerId  (JWT protected)
+app.get("/assignments/active/:volunteerId", verifyToken, async (req, res) => {
+  try {
+    const assignments = await Assignment.find({
+      volunteerId: req.params.volunteerId,
+      status: { $in: ["assigned", "in_progress"] }
+    }).sort({ createdAt: -1 });
+
+    // Populate issue details
+    const populated = await Promise.all(assignments.map(async (a) => {
+      const issue = await Issue.findById(a.issueId);
+      return { ...a.toObject(), issue };
+    }));
+
+    res.json(populated);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /history/:volunteerId  (JWT protected)
+app.get("/history/:volunteerId", verifyToken, async (req, res) => {
+  try {
+    const assignments = await Assignment.find({
+      volunteerId: req.params.volunteerId,
+      status: "completed"
+    }).sort({ completedAt: -1 });
+
+    const populated = await Promise.all(assignments.map(async (a) => {
+      const issue = await Issue.findById(a.issueId);
+      return { ...a.toObject(), issue };
+    }));
+
+    res.json(populated);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
