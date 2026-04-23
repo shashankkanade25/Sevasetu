@@ -103,9 +103,32 @@ router.get("/ai-analytics", async (req, res) => {
     // ── Call Gemini ──
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      return res
-        .status(500)
-        .json({ error: "GEMINI_API_KEY is not configured on the server." });
+      // Return a simulated AI response for demonstration
+      const topCat = categoryBreakdown.length > 0 ? categoryBreakdown[0]._id : "General";
+      const topLoc = locationHotspots.length > 0 ? locationHotspots[0]._id : "Multiple locations";
+      const shortfall = Math.max(0, criticalUnassigned - availableVolunteers);
+      
+      const insights = `
+## 🚨 Simulated AI Crisis Analysis
+*(Note: GEMINI_API_KEY is not configured in backend/.env. Displaying simulated insights based on live data.)*
+
+### 1) Issue Severity Load
+- Currently tracking **${totalUnresolved} unresolved issues**.
+- **${severityBuckets.find(b => b._id === "High")?.count || 0} High Severity** issues require immediate attention.
+
+### 2) Resource Shortages vs Critical Tasks
+- **${criticalUnassigned}** critical tasks are currently unassigned.
+- With only **${availableVolunteers}** available volunteers, there is a shortfall of **${shortfall}** personnel.
+
+### 3) Category and Location Hotspots
+- **Category Focus:** Most issues fall under the **${topCat}** category.
+- **Location Hotspot:** Highest concentration of alerts is in **${topLoc}**.
+
+### 4) Immediate Action Steps
+- **Smart Allocation:** Automatically trigger match system for the ${criticalUnassigned} critical unassigned tasks.
+- **Resource Reallocation:** Re-route busy volunteers from low-priority tasks to address the ${shortfall} shortfall in high-severity zones.
+      `;
+      return res.json({ insights, metrics: metricsPayload });
     }
 
     const ai = new GoogleGenAI({ apiKey });
