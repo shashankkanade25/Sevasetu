@@ -45,6 +45,7 @@ export const getAIAnalytics       = () => api.get("/api/ai-analytics");
 export const checkUserExistence = (email) => api.get(`/auth/user/${email}`);
 export const createUserProfile  = (data)  => api.post("/auth/create-user", data);
 export const authMe             = ()      => api.get("/auth/me");
+export const updateProfile      = (data)  => api.patch("/update-profile", data);
 
 // ── Volunteer-facing (JWT-protected) APIs ─────────────────────────────────────
 export const getRecommendations = (volunteerId)           => api.get(`/recommendations/${volunteerId}`);

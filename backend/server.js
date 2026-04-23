@@ -45,6 +45,27 @@ app.use((req, res, next) => {
 // ─────────────────────────────────────────────
 app.use('/auth', authRouter);
 
+app.patch("/update-profile", verifyToken, async (req, res) => {
+  try {
+    const { id, role } = req.user;
+    const updateData = req.body;
+    delete updateData.email;
+    delete updateData.role;
+
+    let updatedUser;
+    if (role === "ngo") {
+      updatedUser = await NGO.findByIdAndUpdate(id, updateData, { new: true });
+    } else if (role === "volunteer") {
+      updatedUser = await Volunteer.findByIdAndUpdate(id, updateData, { new: true });
+    }
+
+    if (!updatedUser) return res.status(404).json({ error: "User not found" });
+    res.json(updatedUser);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // MongoDB Connection
 mongoose.connect("mongodb+srv://sevasetu_db_user:Shashank+1233@sevasetu.dpigm7b.mongodb.net/")
   .then(() => console.log("MongoDB connected"))
