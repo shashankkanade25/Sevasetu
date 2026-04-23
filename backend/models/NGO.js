@@ -7,6 +7,8 @@ const ngoSchema = new mongoose.Schema({
   firebaseUid:   { type: String, index: true },
   organization:  { type: String },
   focusArea:     { type: String },
+  location:      { type: String },
+  photoURL:      { type: String },
   role:          { type: String, default: "ngo" },
   createdAt:     { type: Date, default: Date.now },
 });

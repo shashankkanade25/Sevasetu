@@ -36,4 +36,32 @@ function requireRole(...roles) {
   };
 }
 
-module.exports = { verifyToken, requireRole, JWT_SECRET };
+const Volunteer = require("../models/Volunteer");
+const NGO = require("../models/NGO");
+
+async function verifyUserExistsInDB(req, res, next) {
+  if (!req.user || !req.user.email) {
+    return res.status(401).json({ error: "Unauthorized. User identity missing." });
+  }
+
+  const { email, role } = req.user;
+  let user = null;
+
+  if (role === "volunteer") {
+    user = await Volunteer.findOne({ email });
+  } else if (role === "ngo") {
+    user = await NGO.findOne({ email });
+  } else {
+    // Check both
+    user = (await Volunteer.findOne({ email })) || (await NGO.findOne({ email }));
+  }
+
+  if (!user) {
+    return res.status(404).json({ error: "User profile not found in database. Please complete registration." });
+  }
+
+  req.dbUser = user;
+  next();
+}
+
+module.exports = { verifyToken, requireRole, verifyUserExistsInDB, JWT_SECRET };

@@ -10,6 +10,7 @@ import Upload         from "./pages/Upload";
 import Insights       from "./pages/Insights";
 import AIAnalytics    from "./pages/AIAnalytics";
 import AuthPage       from "./pages/AuthPage";
+import CompleteProfile  from "./pages/CompleteProfile";
 import VolunteerDashboard from "./pages/VolunteerDashboard";
 import { getNotifications, markNotifRead, authMe } from "./api";
 import "./App.css";
@@ -262,6 +263,8 @@ export default function App() {
               ? <Navigate to="/volunteer/dashboard" replace />
               : <Navigate to="/" replace />
         } />
+
+        <Route path="/complete-profile" element={<CompleteProfile onLogin={handleLogin} />} />
       </Routes>
     </BrowserRouter>
   );

@@ -42,9 +42,9 @@ export const getAnalyticsOverview = () => api.get("/analytics/overview");
 export const getAIAnalytics       = () => api.get("/api/ai-analytics");
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
-export const authSignup = (data)          => api.post("/auth/signup", data);
-export const authLogin  = (email, role)   => api.post("/auth/login",  { email, role });
-export const authMe     = ()              => api.get("/auth/me");
+export const checkUserExistence = (email) => api.get(`/auth/user/${email}`);
+export const createUserProfile  = (data)  => api.post("/auth/create-user", data);
+export const authMe             = ()      => api.get("/auth/me");
 
 // ── Volunteer-facing (JWT-protected) APIs ─────────────────────────────────────
 export const getRecommendations = (volunteerId)           => api.get(`/recommendations/${volunteerId}`);
