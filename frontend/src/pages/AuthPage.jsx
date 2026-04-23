@@ -139,27 +139,28 @@ export default function AuthPage({ onLogin }) {
               LEFT — Glassmorphism auth card
           ═══════════════════════════════════════════ */}
           <div style={{
-            width: 420, maxWidth: "90vw",
+            height:"87%",
+            width: 400, maxWidth: "90vw",
             background: "rgba(255,255,255,0.1)",
             border: "1px solid rgba(255,255,255,0.2)",
             backdropFilter: "blur(20px)",
             WebkitBackdropFilter: "blur(20px)",
             borderRadius: 24,
-            padding: "40px 36px",
+            padding: "15px 15px",
             animation: "_slideIn 0.7s ease-out both",
             boxShadow: "0 24px 80px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.15)",
           }}>
 
             {/* Logo — using exact SVG component for a symbol look */}
             <div style={{
-              display: "flex", justifyContent: "center", marginBottom: 24,
+              display: "flex", justifyContent: "center", marginBottom: -12,
               animation: "_fadeUp 0.6s ease-out 0.1s both",
             }}>
               <div style={{
                 filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.3))",
               }}>
                 <SevaSetuLogo
-                  width={140}
+                  width={260}
                   colors={{ red: "#EF4444", gold: "#EF4444", green: "#EF4444", blue: "#EF4444", text: "#FFFFFF" }}
                 />
               </div>
@@ -167,7 +168,7 @@ export default function AuthPage({ onLogin }) {
 
             {/* Headline */}
             <div style={{
-              textAlign: "center", marginBottom: 28,
+              textAlign: "center", marginBottom: 20,
               animation: "_fadeUp 0.6s ease-out 0.2s both",
             }}>
               <h1 style={{
@@ -188,7 +189,7 @@ export default function AuthPage({ onLogin }) {
 
             {/* Role selector */}
             <div style={{
-              marginBottom: 24,
+              marginBottom: 16,
               animation: "_fadeUp 0.6s ease-out 0.3s both",
             }}>
               <label style={{
@@ -232,7 +233,7 @@ export default function AuthPage({ onLogin }) {
             {/* Divider text */}
             <p style={{
               textAlign: "center", fontSize: "0.82rem",
-              color: "rgba(255,255,255,0.55)", margin: "0 0 14px",
+              color: "rgba(255,255,255,0.55)", margin: "0 0 10px",
               animation: "_fadeUp 0.6s ease-out 0.35s both",
             }}>
               Continue with Google to get started.
@@ -289,7 +290,7 @@ export default function AuthPage({ onLogin }) {
             {/* Footer */}
             <p style={{
               textAlign: "center", fontSize: "0.7rem",
-              color: "rgba(255,255,255,0.35)", marginTop: 20, marginBottom: 0,
+              color: "rgba(255,255,255,0.35)", marginTop: 14, marginBottom: 0,
               animation: "_fadeUp 0.6s ease-out 0.5s both",
             }}>
               By continuing, you agree to SevaSetu's Terms and Privacy Policy.
