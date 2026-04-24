@@ -16,8 +16,7 @@ api.interceptors.request.use((config) => {
 // ── Issues ────────────────────────────────────────────────────────────────────
 export const getIssues       = (params)   => api.get("/issues", { params });
 export const getIssueStats   = ()         => api.get("/issues/stats");
-export const uploadCSV       = (formData) => api.post("/upload-csv", formData);
-export const uploadPDF       = (formData) => api.post("/upload-pdf", formData);
+export const uploadIssues      = (formData) => api.post("/upload-issues", formData);
 export const recalculate     = ()         => api.post("/recalculate-priorities");
 
 // ── Volunteers ────────────────────────────────────────────────────────────────

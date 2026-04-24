@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { uploadCSV, uploadPDF } from "../api";
+import { uploadIssues } from "../api";
 import { useNavigate } from "react-router-dom";
 
 const UPLOAD_STEPS = ["Uploading", "Parsing", "Validating", "Complete"];
@@ -54,6 +54,7 @@ export default function Upload() {
 
   const handleUpload = async () => {
     if (!file) return showToast("Please select a file first", "error");
+
     const formData = new FormData();
     formData.append("file", file);
     setLoading(true);
@@ -65,31 +66,34 @@ export default function Upload() {
     const progressDelay = simulateProgress();
 
     try {
-      let result;
-      if (fileType === "csv") {
-        const res = await uploadCSV(formData);
-        result = res.data;
-        showToast(`${res.data.message} — ${res.data.count || ""} rows imported`);
-        setSuccessInfo({ count: res.data.count, type: "csv" });
-      } else {
-        const res = await uploadPDF(formData);
-        result = res.data;
-        showToast(res.data.message);
-        setSuccessInfo({ count: 1, type: "pdf" });
-      }
+      const response = await uploadIssues(formData);
+      const { successCount, failedCount, errors } = response.data;
 
       setTimeout(() => {
         setUploadStep(3);
         setUploadProgress(100);
+
+        if (failedCount > 0 && successCount === 0) {
+          showToast(`Upload failed: ${failedCount} rows invalid`, "error");
+          console.error("Upload Errors:", errors);
+        } else if (failedCount > 0) {
+          showToast(`Partial success: ${successCount} uploaded, ${failedCount} failed`, "error");
+          console.warn("Upload Errors:", errors);
+        } else {
+          showToast(`✅ ${successCount} issues uploaded successfully`, "success");
+        }
+
+        setSuccessInfo({ count: successCount, type: fileType });
       }, progressDelay + 200);
 
-      entry.status = "done";
+      entry.status = (failedCount > 0 && successCount === 0) ? "error" : "done";
       setHistory(prev => [...prev]);
       setFile(null);
     } catch (err) {
       entry.status = "error";
       setHistory(prev => [...prev]);
-      showToast(err.response?.data?.error || "Upload failed", "error");
+      const errMsg = err.response?.data?.error || "Upload failed";
+      showToast(errMsg, "error");
       setUploadStep(0);
       setUploadProgress(0);
     } finally {
