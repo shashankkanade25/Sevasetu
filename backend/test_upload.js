@@ -29,7 +29,7 @@ function uploadFile(filePath, filename, label) {
     const body = Buffer.concat([pre, fileData, post]);
 
     const options = {
-      hostname: 'localhost',
+      hostname: '98.82.103.236',
       port: 3000,
       path: '/upload-issues',
       method: 'POST',
