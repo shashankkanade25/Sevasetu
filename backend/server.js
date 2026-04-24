@@ -5,7 +5,7 @@ const mongoose = require('mongoose');
 const multer = require('multer');
 const csv = require('csv-parser');
 const fs = require('fs');
-const pdf = require('pdf-parse');
+const { PDFParse } = require('pdf-parse');
 
 const Issue = require('./models/Issue');
 const Volunteer = require('./models/Volunteer');
@@ -86,77 +86,242 @@ app.get('/test', (req, res) => {
 // ISSUES
 // ─────────────────────────────────────────────
 
-// CSV Upload → auto-calculate priorityScore
-app.post("/upload-csv", upload.single("file"), (req, res) => {
-  const results = [];
+// 3. Validation function
+function validateIssueData(data) {
+  if (!data.title || data.title.trim() === "") return "Title is missing";
+  if (isNaN(data.severity)) return "Severity is NaN after mapping";
+  if (isNaN(data.peopleAffected)) return "PeopleAffected is NaN";
+  return null;
+}
 
-  fs.createReadStream(req.file.path)
-    .pipe(csv())
-    .on("data", (data) => {
-      const cleanData = {};
-      for (const key in data) {
-        const cleanKey = key.replace(/^\uFEFF/, '').trim().toLowerCase();
-        // specially map 'peopleaffected' to camelCase for the schema
-        if (cleanKey === 'peopleaffected') {
-          cleanData['peopleAffected'] = data[key]?.trim();
-        } else {
-          cleanData[cleanKey] = data[key]?.trim();
-        }
+// 2. Data normalization function
+function normalizeIssueData(row) {
+  const normalized = {};
+  
+  for (const key in row) {
+    const cleanKey = key.replace(/^\uFEFF/, '').trim().toLowerCase();
+    
+    if (["peopleaffected", "affected_people", "people", "count"].includes(cleanKey)) {
+      normalized.peopleAffected = row[key];
+    } else if (["severity", "priority"].includes(cleanKey)) {
+      normalized.severity = row[key];
+    } else if (["skillsrequired", "skills"].includes(cleanKey)) {
+      normalized.skillsRequired = row[key];
+    } else {
+      normalized[cleanKey] = row[key];
+    }
+  }
+
+  for (const key in normalized) {
+    if (typeof normalized[key] === 'string') {
+      normalized[key] = normalized[key].trim();
+    }
+  }
+
+  const severityMap = { low: 1, medium: 2, high: 3, urgent: 5 };
+  if (typeof normalized.severity === 'string') {
+    const sevLower = normalized.severity.toLowerCase();
+    normalized.severity = severityMap[sevLower] !== undefined ? severityMap[sevLower] : Number(normalized.severity);
+  } else {
+    normalized.severity = Number(normalized.severity);
+  }
+
+  normalized.peopleAffected = Number(normalized.peopleAffected);
+
+  if (normalized.skillsRequired) {
+    normalized.skillsRequired = normalized.skillsRequired
+      .split(/[,;]/)
+      .map(s => s.trim())
+      .filter(s => s.length > 0);
+  } else {
+    normalized.skillsRequired = [];
+  }
+
+  if (!normalized.status) normalized.status = 'open';
+  if (!normalized.urgency) normalized.urgency = 'low';
+
+  return normalized;
+}
+
+// Helper: parse tabular OR key-value PDF text into issue rows
+function parsePDFTextToIssues(text) {
+  const issues = [];
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+
+  // ── Mode 1: Key-value blocks (Title: ..., Severity: ...) ─────────────────
+  const hasKeyValue = lines.some(l => /^title\s*:/i.test(l));
+  if (hasKeyValue) {
+    const blocks = text.split(/\n{2,}/).map(b => b.trim()).filter(b => b.length > 0);
+    for (const block of blocks) {
+      const row = {};
+      for (const line of block.split('\n')) {
+        const m = line.match(/^([\w\s]+?):\s*(.+)$/);
+        if (!m) continue;
+        const key = m[1].trim().toLowerCase().replace(/[\s_]+/g, '');
+        const val = m[2].trim();
+        if (key === 'title') row.title = val;
+        else if (key === 'category') row.category = val;
+        else if (['location', 'area'].includes(key)) row.location = val;
+        else if (['severity', 'priority'].includes(key)) row.severity = val;
+        else if (['peopleaffected', 'affected', 'people', 'count'].includes(key)) row.peopleAffected = val;
+        else if (['description', 'desc'].includes(key)) row.description = val;
+        else if (['skills', 'skillsrequired'].includes(key)) row.skillsRequired = val;
+        else if (key === 'urgency') row.urgency = val;
       }
-      results.push(cleanData);
-    })
-    .on("end", async () => {
-      try {
-        for (let item of results) {
-          const priorityScore = calculatePriority({
-            severity: Number(item.severity),
-            peopleAffected: Number(item.peopleAffected),
-            urgency: item.urgency
-          });
+      if (row.title) issues.push(row);
+    }
+    return issues;
+  }
 
-          await Issue.create({
-            title: item.title,
-            category: item.category,
-            location: item.location,
-            severity: Number(item.severity),
-            peopleAffected: Number(item.peopleAffected),
-            urgency: item.urgency,
-            priorityScore
-          });
-        }
+  // ── Mode 2: Table format ──────────────────────────────────────────────────
+  // Find header row that contains "title" AND one of location/priority/affected
+  let headerIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i].toLowerCase();
+    if (l.includes('title') && (l.includes('location') || l.includes('priority') || l.includes('affected') || l.includes('severity'))) {
+      headerIdx = i;
+      break;
+    }
+  }
+  if (headerIdx === -1) return issues;
 
-        fs.unlinkSync(req.file.path);
-        res.json({ message: "CSV uploaded successfully", count: results.length });
-      } catch (err) {
-        res.status(500).json({ error: err.message });
-      }
+  // Known severity keywords for heuristic parsing
+  const SEVERITY_WORDS = new Set(['low', 'medium', 'high', 'urgent', 'critical']);
+
+  for (let i = headerIdx + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line) continue;
+
+    // Strategy: anchor on the first integer in the line (= peopleAffected)
+    const numMatch = line.match(/\b(\d+)\b/);
+    if (!numMatch) continue;
+
+    const numPos = line.indexOf(numMatch[1]);
+    const beforeNum = line.slice(0, numPos).trim();   // "Drought Relief Support Solapur High"
+    const afterNum  = line.slice(numPos + numMatch[1].length).trim(); // "Water Crisis"
+
+    const beforeTokens = beforeNum.split(/\s+/);
+
+    // Find severity word (last severity keyword before the number)
+    let sevIdx = -1;
+    for (let j = beforeTokens.length - 1; j >= 0; j--) {
+      if (SEVERITY_WORDS.has(beforeTokens[j].toLowerCase())) { sevIdx = j; break; }
+    }
+
+    let title = '', location = '', severity = '';
+    if (sevIdx > 0) {
+      severity = beforeTokens[sevIdx];
+      const locAndTitle = beforeTokens.slice(0, sevIdx);
+      // Heuristic: the LAST word before severity is the location (single-word city names)
+      location = locAndTitle.pop() || '';
+      title    = locAndTitle.join(' ');
+    } else {
+      // No severity keyword found — take last word as location, rest as title
+      const parts = beforeTokens.slice();
+      location = parts.pop() || '';
+      title    = parts.join(' ');
+    }
+
+    if (!title) continue;
+
+    issues.push({
+      title:          title.trim(),
+      location:       location.trim(),
+      severity:       severity || 'medium',
+      peopleAffected: numMatch[1],
+      category:       afterNum.trim(),
     });
-});
+  }
 
-// PDF Upload
-app.post("/upload-pdf", upload.single("file"), async (req, res) => {
-  try {
-    const dataBuffer = fs.readFileSync(req.file.path);
-    const data = await pdf(dataBuffer);
-    const text = data.text;
+  return issues;
+}
 
-    const issueData = {
-      title: text.match(/Title:\s(.+)/)?.[1]?.trim(),
-      category: text.match(/Category:\s(.+)/)?.[1]?.trim(),
-      location: text.match(/Location:\s(.+)/)?.[1]?.trim(),
-      severity: Number(text.match(/Severity:\s(.+)/)?.[1]) || 0,
-      peopleAffected: Number(text.match(/PeopleAffected:\s(.+)/)?.[1]) || 0,
-      urgency: text.match(/Urgency:\s(.+)/)?.[1]?.trim()?.toLowerCase() || "low"
-    };
+// 1. Unified upload route — handles both CSV and PDF
+app.post("/upload-issues", upload.single("file"), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: "No file uploaded" });
+  }
 
-    issueData.priorityScore = calculatePriority(issueData);
+  const ext = req.file.originalname.split('.').pop().toLowerCase();
+  const results = [];
+  const errors = [];
+  let successCount = 0;
+  let failedCount = 0;
 
-    await Issue.create(issueData);
-    fs.unlinkSync(req.file.path);
+  const processRows = async (rows) => {
+    for (let i = 0; i < rows.length; i++) {
+      const normalizedData = normalizeIssueData(rows[i]);
+      const validationError = validateIssueData(normalizedData);
+      if (validationError) {
+        failedCount++;
+        errors.push({ row: i + 1, reason: validationError });
+      } else {
+        successCount++;
+        normalizedData.priorityScore = calculatePriority({
+          severity: normalizedData.severity,
+          peopleAffected: normalizedData.peopleAffected,
+          urgency: normalizedData.urgency
+        });
+        results.push(normalizedData);
+      }
+    }
+    if (results.length > 0) {
+      await Issue.insertMany(results, { ordered: false }).catch(e => {
+        console.error("insertMany error:", e.message);
+      });
+    }
+    try { fs.unlinkSync(req.file.path); } catch (_) { }
+    return res.json({ successCount, failedCount, errors });
+  };
 
-    res.json({ message: "PDF processed", issue: issueData });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  if (ext === 'csv') {
+    const rows = [];
+    fs.createReadStream(req.file.path)
+      .pipe(csv())
+      .on("data", (data) => rows.push(data))
+      .on("error", (err) => {
+        try { fs.unlinkSync(req.file.path); } catch (_) { }
+        return res.status(500).json({ error: `CSV parse error: ${err.message}` });
+      })
+      .on("end", async () => {
+        try {
+          await processRows(rows);
+        } catch (err) {
+          res.status(500).json({ error: err.message });
+        }
+      });
+
+  } else if (ext === 'pdf') {
+    try {
+      const dataBuffer = fs.readFileSync(req.file.path);
+      const parser = new PDFParse({ verbosity: 0, data: new Uint8Array(dataBuffer) });
+      await parser.load();
+      const textResult = await parser.getText();
+      // getText returns { pages: [{text}] } or a string — normalise
+      let allText = '';
+      if (typeof textResult === 'string') {
+        allText = textResult;
+      } else if (textResult && textResult.pages) {
+        allText = textResult.pages.map(p => (typeof p === 'string' ? p : p.text || '')).join('\n\n');
+      } else {
+        allText = String(textResult);
+      }
+      console.log('[PDF] Extracted text (first 500):', allText.slice(0, 500));
+      const rows = parsePDFTextToIssues(allText);
+      console.log('[PDF] Parsed rows:', rows);
+      if (rows.length === 0) {
+        try { fs.unlinkSync(req.file.path); } catch (_) { }
+        return res.status(422).json({ error: "No valid issues found in PDF. Use table format with columns: Title, Location, Priority/Severity, Affected, Category" });
+      }
+      await processRows(rows);
+    } catch (err) {
+      try { fs.unlinkSync(req.file.path); } catch (_) { }
+      return res.status(500).json({ error: `PDF parse error: ${err.message}` });
+    }
+
+  } else {
+    try { fs.unlinkSync(req.file.path); } catch (_) { }
+    return res.status(400).json({ error: "Unsupported file type. Upload CSV or PDF only." });
   }
 });
 

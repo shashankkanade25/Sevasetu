@@ -2,12 +2,14 @@ const mongoose = require("mongoose");
 
 const issueSchema = new mongoose.Schema({
   title: String,
-  category: String,
+  description: String,
   location: String,
   lat: Number,
   lng: Number,
   severity: Number,
   peopleAffected: Number,
+  category: String,
+  skillsRequired: [String],
   urgency: String,
   priorityScore: Number,
   status: { type: String, default: 'open', enum: ['open', 'assigned', 'resolved'] },
